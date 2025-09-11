@@ -1,0 +1,398 @@
+## BacktestingBeta.txt is a txt file that contains documentation on how
+## backtesting for ArthurBeta is going.
+## Other .txt files are now deprecated.
+
+As of 08/22/2025 11:58 CST with E2E preserved with Omega and Lambda model,
+Historical Verification for backtesting producing the following results:
+
+Jan '25
+✅ Model Accuracy: 59.9% (74369/124145 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  20.054%
+  SELL (1): 19.9323%
+  HOLD (2): 60.0137%
+        t_sec  ActionHat  TrueAction    theta
+124140  79080          2           2   0.6899
+124141  79095          2           2   0.2082
+124142  79110          2           2   8.6754
+124143  79125          2           2   0.0000
+124144  79140          2           2  10.8695
+
+Feb '25
+✅ Model Accuracy: 59.05% (66975/113417 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  20.3594%
+  SELL (1): 20.4943%
+  HOLD (2): 59.1463%
+        t_sec  ActionHat  TrueAction   theta
+113412  79080          2           0  3.9704
+113413  79095          2           2  8.8350
+113414  79110          2           2  5.3545
+113415  79125          2           2  5.1879
+113416  79140          2           2  0.0000
+
+Mar '25
+✅ Model Accuracy: 57.18% (68056/119017 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  21.3759%
+  SELL (1): 21.3818%
+  HOLD (2): 57.2422%
+        t_sec  ActionHat  TrueAction    theta
+119012  86325          2           1   5.2254
+119013  86340          2           0   0.7585
+119014  86355          2           0   0.2302
+119015  86370          2           0  18.7522
+119016  86385          2           2  17.4983
+
+Apr '25
+✅ Model Accuracy: 47.44% (58885/124134 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  26.1322%
+  SELL (1): 26.3916%
+  HOLD (2): 47.4761%
+        t_sec  ActionHat  TrueAction    theta
+124129  86325          2           1   0.6369
+124130  86340          2           2   0.5022
+124131  86355          2           0   1.2242
+124132  86370          2           1   5.7912
+124133  86385          2           2  10.7161
+
+May '25
+✅ Model Accuracy: 55.64% (68656/123400 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  22.1524%
+  SELL (1): 22.1216%
+  HOLD (2): 55.7261%
+        t_sec  ActionHat  TrueAction   theta
+123395  75480          2           0  0.6978
+123396  75495          2           1  6.6650
+123397  75510          2           0  0.0000
+123398  75525          2           2  6.0641
+123399  75540          2           2  0.2906
+
+Jun '25
+✅ Model Accuracy: 61.84% (73703/119190 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  19.0553%
+  SELL (1): 19.005%
+  HOLD (2): 61.9398%
+        t_sec  ActionHat  TrueAction    theta
+119185  86325          2           1  15.8631
+119186  86340          2           2   1.0707
+119187  86355          2           0  16.6960
+119188  86370          2           2   3.3086
+119189  86385          2           2   0.5343
+
+6mo ACC: 0.56841
+6mo B%: 0.21516
+6mo S%: 0.21551
+
+Now 0.56841 is the benchmark for accuracy given that historical verification is considered
+nominal. Any tuning that increases that threshold is extra. This is ready for demo.
+--------------
+
+Currently 4 variables are being perturbated via partial derivative modulation
+in order to find a local accuracy maximum.
+Beta for softmax weights, epsilon smoother for computation handling,
+theta gate, and mu gate.
+
+In this order because algorithm before decision rule.
+-------------
+
+Local maximum of .6001 found for Jan '25 with beta = 0.25, with small bounds.
+
+EPS_SMOOTHER does not affect accuracy but having it inside does make the algorithm
+analytic.
+
+Theta and Mu next.
+--------------
+
+Theta will be somewhere between 10 and 50 degrees, and mu will be somewhere 0.01 and 0.2
+for accuracy maximum.
+
+Neither perturbations changed anything and both are left at 30 and 0.1 respectively for
+later evolution when higher quantitative and higher qualitative algorithms involved.
+
+This is fully backtested with pure and experimental backing. It is time to demo trade.
+---------------
+
+VARIABLES ARE BETA, THETA, MU, and GRANULARITY / DELTA as of 08222025 1304 CST.
+
+Last thing to test for is optimizing granularity for PnL. Remember optimize for PnL
+and not accuracy because technically historical statistical classifiers are a 
+working definition.
+
+Right now for LVL1 options are S10 and S15, maybe S5 but not to force it
+for LVL1. Now with S10:
+
+Jan '25:
+✅ Model Accuracy: 67.74% (124711/184110 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  16.1751%
+  SELL (1): 16.0871%
+  HOLD (2): 67.7378%
+        t_sec  ActionHat  TrueAction   theta
+184105  79100          2           2  0.4310
+184106  79110          2           2  0.3393
+184107  79120          2           2  1.4176
+184108  79130          2           2  0.0000
+184109  79140          2           2  1.8859
+
+Feb '25
+✅ Model Accuracy: 66.95% (112929/168687 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  16.4488%
+  SELL (1): 16.6053%
+  HOLD (2): 66.9459%
+        t_sec  ActionHat  TrueAction   theta
+168682  79100          2           2  2.5913
+168683  79110          2           2  1.0949
+168684  79120          2           2  4.0976
+168685  79130          2           2  3.9635
+168686  79140          2           2  0.0000
+
+Mar '25
+✅ Model Accuracy: 64.87% (114751/176892 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  17.5248%
+  SELL (1): 17.6045%
+  HOLD (2): 64.8707%
+        t_sec  ActionHat  TrueAction   theta
+176887  86350          2           2  1.5168
+176888  86360          2           2  2.2740
+176889  86370          2           2  5.8708
+176890  86380          2           0  2.8140
+176891  86390          2           2  5.6297
+
+Apr '25
+✅ Model Accuracy: 54.73% (101227/184965 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  22.5491%
+  SELL (1): 22.7232%
+  HOLD (2): 54.7277%
+        t_sec  ActionHat  TrueAction   theta
+184960  86350          2           2  2.0878
+184961  86360          2           2  0.3352
+184962  86370          2           2  3.3694
+184963  86380          2           2  0.0071
+184964  86390          2           2  7.3882
+
+May '25
+✅ Model Accuracy: 63.83% (116941/183207 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  18.1521%
+  SELL (1): 18.0179%
+  HOLD (2): 63.83%
+        t_sec  ActionHat  TrueAction   theta
+183202  75500          2           1  4.6818
+183203  75510          2           2  2.4615
+183204  75520          2           2  4.5442
+183205  75530          2           2  5.3828
+183206  75540          2           2  0.2382
+
+Jun '25
+✅ Model Accuracy: 69.75% (123404/176925 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  15.1019%
+  SELL (1): 15.1477%
+  HOLD (2): 69.7505%
+        t_sec  ActionHat  TrueAction    theta
+176920  86350          2           2   3.9291
+176921  86360          2           0   4.4622
+176922  86370          2           2   2.4207
+176923  86380          2           2  11.0146
+176924  86390          2           2   3.9567
+
+6mo ACC: 0.56841 -> 0.64645 (7.8%)
+6mo B%: 0.21516 -> 0.17653 (-3.8%)
+6mo S%: 0.21551 -> 0.17691 (-3.8%)
+
+---------
+Choose S15 or S10 whichever maximizes PnL, discuss with Bryan.
+
+2024 next. Breaking this up b/c OANDA is having blips.
+
+Jan - Apr 2024:
+✅ Model Accuracy: 79.44% (561275/706506 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  10.3834%
+  SELL (1): 10.1726%
+  HOLD (2): 79.4441%
+        t_sec  ActionHat  TrueAction   theta
+706501  86350          2           2  0.1318
+706502  86360          2           2  6.5984
+706503  86370          2           2  0.8640
+706504  86380          2           2  1.0797
+706505  86390          2           2  4.5242
+
+May - Aug 2024:
+✅ Model Accuracy: 71.57% (513121/716918 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  14.257%
+  SELL (1): 14.1694%
+  HOLD (2): 71.5736%
+        t_sec  ActionHat  TrueAction   theta
+716913  75500          2           2  4.9093
+716914  75510          2           2  0.3217
+716915  75520          2           2  0.7969
+716916  75530          2           0  0.2634
+716917  75540          2           2  0.4871
+
+Sept - Dec 2024:
+✅ Model Accuracy: 66.04% (474597/718644 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  16.998%
+  SELL (1): 16.9607%
+  HOLD (2): 66.0413%
+        t_sec  ActionHat  TrueAction   theta
+718639  79100          2           2  0.3465
+718640  79110          2           2  0.4806
+718641  79120          2           2  0.0102
+718642  79130          2           2  1.0531
+718643  79140          2           2  0.4702
+
+
+'24 ACC: 0.7235
+'24 B%: 0.1387
+'24 S%: 0.1376
+
+2024 even with the shifts in A,B,S would have been a tigher year on PnL / Expenses but
+it would have been a good year nonetheless.
+--------
+10 Year Analysis from 2015-2024:
+✅ Model Accuracy: 71.4% (12727841/17825475 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  14.3381%
+  SELL (1): 14.2589%
+  HOLD (2): 71.4029%
+          t_sec  ActionHat  TrueAction   theta
+17825470  79100          2           2  0.3465
+17825471  79110          2           2  0.4806
+17825472  79120          2           2  0.0102
+17825473  79130          2           2  1.0531
+17825474  79140          2           2  0.4702
+
+
+
+July to August 21st:
+✅ Model Accuracy: 74.03% (233718/315708 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  13.1023%
+  SELL (1): 12.8676%
+  HOLD (2): 74.0301%
+        t_sec  ActionHat  TrueAction   theta
+315703  86350          2           2  0.2670
+315704  86360          2           0  0.6130
+315705  86370          2           2  0.4039
+315706  86380          2           2  0.3723
+315707  86390          2           2  1.0397
+
+------------------
+
+Made pips accurate and also made B and S absolute values.
+
+Tuning theta and epsilon mu should allow for better processing.
+
+Currently for 08-01 to 08-25:
+
+M15:
+
+✅ Model Accuracy: 51.04% (49/96 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  28.125%
+  SELL (1): 20.8333%
+  HOLD (2): 51.0417%
+    t_sec  ActionHat  TrueAction   theta
+91  81900          2           0  0.5759
+92  82800          2           2  6.1889
+93  83700          2           2  0.3732
+94  84600          2           2  8.5552
+95  85500          2           2  0.3297
+
+
+M10:
+
+
+✅ Model Accuracy: 55.56% (80/144 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  25.6944%
+  SELL (1): 18.75%
+  HOLD (2): 55.5556%
+     t_sec  ActionHat  TrueAction   theta
+139  83400          2           2  0.0217
+140  84000          2           2  2.7642
+141  84600          2           2  2.9924
+142  85200          2           1  3.3937
+143  85800          2           2  3.4724
+
+
+-------------------
+
+Tuning small and large lag:
+
+No change, possibly revisit when resonance changes.
+
+------------------
+
+Beta smoother did not change.
+
+------------------
+
+Pips now understood and modularized. Pips gate the size of the game and Arthur
+will be as good as he is. Pips govern the B,S % naturally. This will be intuited. 
+15-20% is good.
+
+Pips at 5.125 using U,V:
+
+✅ Model Accuracy: 58.33% (56/96 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  16.6667%
+  SELL (1): 12.5%
+  HOLD (2): 70.8333%
+    t_sec  ActionHat  TrueAction   theta
+91  81900          0           0  0.5759
+92  82800          2           2  6.1889
+93  83700          0           2  0.3732
+94  84600          2           2  8.5552
+95  85500          2           2  0.3297
+
+After tuning U and V with 5.125 pip and M15:
+✅ Model Accuracy: 70.83% (68/96 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  16.6667%
+  SELL (1): 12.5%
+  HOLD (2): 70.8333%
+    t_sec  ActionHat  TrueAction   theta
+91  81900          2           0  0.5759
+92  82800          2           2  6.1889
+93  83700          2           2  0.3732
+94  84600          2           2  8.5552
+95  85500          2           2  0.3297
+----------------
+
+August up to 25th M10 pip 5.125:
+✅ Model Accuracy: 72.34% (1771/2448 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  13.848%
+  SELL (1): 13.8072%
+  HOLD (2): 72.3448%
+      t_sec  ActionHat  TrueAction   theta
+2443  83400          2           2  0.0217
+2444  84000          2           2  2.7642
+2445  84600          2           2  2.9924
+2446  85200          2           2  3.3937
+2447  85800          2           2  3.4724
+
+August up to 25th M15 pip 5.125:
+
+✅ Model Accuracy: 63.54% (1037/1632 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  18.4436%
+  SELL (1): 18.0147%
+  HOLD (2): 63.5417%
+      t_sec  ActionHat  TrueAction   theta
+1627  81900          2           0  0.5759
+1628  82800          2           2  6.1889
+1629  83700          2           2  0.3732
+1630  84600          2           2  8.5552
+1631  85500          2           2  0.3297

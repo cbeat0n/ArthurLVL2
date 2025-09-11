@@ -1,0 +1,35 @@
+## backtestingbeta2.txt is a txt file that contains documentation on how
+## backtesting for ArthurBeta is going.
+
+
+# File written from 08/12-XXXX 2025
+
+Next Goal: SMALL PIP FREQUENCY ADJUSTMENTS
+
+CONTROL VARIABLES:
+ACC 0.5177
+B% 0.2392
+S%  0.2430
+
+Hypothesis:
+Multiply Theta by some small frequency indicator to account for other frequencies.
+Application: Turn theta into delta for differential/pressure diff. Theta gate becomes delta gate.
+
+Ideas:
+-Reversion to mean - short term reversion **
+-ATR - short term volatility and accel
+-price rate of change - STV and Accel
+-normalized volatility - stv and accel
+-volume spike indicator - liquidity and flow **
+-tick imbalance - liquidity and flow proxies (might break etltl)
+-williams %r - short term reversion ** 
+-z score of returns - short term reversion
+
+
+All of these can be parameterized and soft shapen for flexibility to change the to be delta values to
+get away from the tiny and also uncontrolled fluctuations. If acc stays then this will work.
+
+------
+
+Yes, the parameters can be included BUT most of the small angles are not because of algo but rather
+sentinel values -3.14. Why is transform_cleaned.py running so many errors?

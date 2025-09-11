@@ -1,0 +1,91 @@
+<!-- market_view.html is an agnostic framework to set up tabs that open up the 
+ different markets by currency pair. On this tab, at least for now, the 
+ trading information for Arthur LVL1 will be set. market_view.html will then 
+refresh at the rate of the granularity chosen whether this is S5 or something else.
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Arthur | Market View - {{ instrument }}</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script> 
+  <!-- Static version, watch this parameter-->
+  
+  <!--Here is where a style sheet would go if style.css doesn't
+  goes to market_view.html -->
+
+  <script>
+    // Auto refresh based on granularity (e.g. S5 = 5000ms)
+    const granularityMap = { S5: 5000, S10: 10000, S15: 15000, S30: 30000, M1: 60000 };
+    const refreshRate = granularityMap["{{ granularity }}"] || 30000; // fallback 30s
+    setTimeout(() => { location.reload(); }, refreshRate);
+  </script>
+</head>
+<body>
+  <h1>Arthur | Market View - {{ instrument }}</h1>
+
+  <!-- Theta and ActionHat Boxes -->
+  {% if signalMatrix and signalMatrix|length > 0 %}
+    {% set latest = signalMatrix[-1] %}
+    <div class="info-box theta-box">
+      <strong>Theta:</strong> {{ latest.theta | round(8) }}°
+    </div>
+    <div class="info-box action-box">
+      <strong>Action:</strong> {{ ["BUY", "SELL", "HOLD"][latest.ActionHat | int] }}
+    </div>
+  {% endif %}
+
+  <!-- Set up dynamic UIUX coloring on ActionBox-->
+   <script>
+    if (latest.ActionHat = 0) {
+      colorMode = chartreuse
+      
+    }
+
+    if (latest.ActionHat = 1) {
+      colorMode = lemonchiffon
+    }
+
+    if (latest.ActionHat = 2) {
+      colorMode = darkcyan
+    }
+   </script>
+
+  <!-- Plots -->
+  <div class="plot-container" id="plot-composite"></div>
+  <div class="plot-container" id="plot-B"></div>
+  <div class="plot-container" id="plot-S"></div>
+  
+
+  <!-- SignalMatrix as JSON -->
+  <script type="application/json" id="signal-data">
+    {{ signalMatrix | tojson | safe }}
+  </script>
+
+  <script>
+    const signalData = JSON.parse(document.getElementById("signal-data").textContent);
+    const t_sec = signalData.map(d => d.t_sec);
+    const t_stamp = signalData.map(d => d.timestamp)
+    const B = signalData.map(d => d.B);
+    const S = signalData.map(d => d.S);
+    const value = signalData.map(d => d.value);
+    const margin = signalData.map(d => d.margin);
+
+    Plotly.newPlot('plot-B', [{ x: t_stamp, y: margin, name: 'B-S', mode: 'lines', line: { color: 'green' }}], {
+      title: 'B-S vs Time', xaxis: { title: 't_stamp' }, yaxis: { title: 'B-S' }
+    });
+
+    Plotly.newPlot('plot-S', [{ x: t_stamp, y: value, name: 'Value', mode: 'lines', line: { color: 'yellow' }}], {
+      title: 'Value vs Time', xaxis: { title: 't_stamp' }, yaxis: { title: 'Value' }
+    });
+
+    Plotly.newPlot('plot-composite', [
+      { x: t_stamp, y: B, name: 'B', mode: 'lines', line: { color: 'green' } },
+      { x: t_stamp, y: S, name: 'S', mode: 'lines', line: { color: 'yellow' } }
+    ], {
+      title: 'B and S Composite vs Time', xaxis: { title: 't_stamp' }, yaxis: { title: 'Value' }
+    });
+  </script>
+</body>
+</html>

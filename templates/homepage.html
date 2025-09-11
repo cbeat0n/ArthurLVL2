@@ -1,0 +1,53 @@
+<!-- 
+  homepage.html is an agnostic framework to setup the Flask delivery
+  for the dynamic webpage and UI that Arthur uses to provide
+  trading information.
+-->
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="{{ url_for('static', filename='shelbyflair.css') }}">
+  <title>Arthur — Front Room</title>
+</head>
+<body class="arthur-home">
+  <div class="arthur-wrap">
+
+    <!-- Header -->
+    <header class="arthur-header">
+      <h1 class="arthur-brand">Arthur - Front Room</h1>
+      <div class="arthur-sub">Expert Handicapper</div>
+    </header>
+
+    <!-- Hero -->
+    <main class="container">
+      <h1 class="hero-title">-Welcome to First Class-</h1>
+
+      <!-- Currency Pair Select -->
+      <form method="GET" action="/">
+        <label for="currencyPair">Choose Currency Pair:</label>
+        <select name="currencyPair" id="currencyPair">
+          <option value="USD_JPY">USD/JPY</option>
+          <option value="USD_MXN">USD/MXN</option>
+        </select>
+        <button type="submit">Run</button>
+      </form>
+
+      {% if signalMatrix %}
+      <!-- Open Market View -->
+      <form method="GET" action="/visualize/{{ instrument }}" target="_blank">
+        <input type="hidden" name="currencyPair" value="{{ instrument }}">
+        <input type="hidden" name="granularity" value="{{ granularity }}">
+        <input type="hidden" name="timestamp" value="{{ safe_timestamp }}">
+        <input type="hidden" name="signalMatrix" value='{{ signalMatrix | tojson }}'>
+        <button type="submit">Open Market View for {{ instrument }}</button>
+      </form>
+      {% endif %}
+    </main>
+
+  </div>
+</body>
+</html>
+

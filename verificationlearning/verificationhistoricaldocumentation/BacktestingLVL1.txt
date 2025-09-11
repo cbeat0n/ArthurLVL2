@@ -1,0 +1,90 @@
+## BacktestingLVL1.txt is a txt file that contains documentation on how
+## backtesting for ArthurLVL1 is going.
+## Other .txt files are now deprecated.
+
+Bryan said "gate is first fixing data flow so B and S work, as well as removing spikes and 
+saturation".
+
+I went through and redefined Omega = OBV now and then cleaned up the algorithm,
+making Lambda correct as well as keeping the stochastic matrix W 
+and then using a sigmoid on Omega and Lambda so that B and S are naturally
+inside the unit square.
+
+1: More smoothing can be done from vendor to B,S calculation.
+2: There should be little to no spikes and B S healthy.
+3: Bryan then said "$'' should predict $ directionality". He was using row by row heuristic.
+I was defining "what is up, what is down, what is $ being noisy" with the pip swing 3x3.
+I communicated this poorly, and was looking to do what he asked more robustly by accounting
+for noise.
+4: With 3x3 defined, with belief of data flow healthy, B,S will work and therefore theta, mu work.
+Then the 3x3 and accuracy gives a well defined measure of how well Arthur is seeing
+the 'change in the price', like Bryan asked, but more controlled. 
+
+I was doing what he asked but I worded it poorly and didn't use financial domain knowledge.
+
+However... although Algo is seeing good data... now the question is which granularity
+to use to optimize for PnL.
+
+TESTING FOR GRANULARITY:
+
+Next step to find granularity is to see where the data is healthiest,
+which will be where the Buy and Sell signs based on the "value moving"
+are highest.
+
+If everything is too fine granules then there may be no movement.
+If everything coarse maybe the iron is no longer hot.
+Might be nonlinear, but whatever granularity / sample size works.
+
+-----
+
+After checking S5 to M15 granularity, the top 5 granularities using price
+and not calculations are un orderd M1 - M10.
+
+Now the question is which of these has the healthiest spread of data, ergo
+where is the frequency of granularity BEFORE algorithm is applied?
+
+Then find top 3 based on health of data, and then order by the amount of stress
+I can handle as a quant trader.
+---------------
+
+So now I have B and S in a crescent shape with Gram Schmidt ready to go. Spread went from 
+✅ Model Accuracy: 84.68% (208420/246137 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  2.3487%
+  SELL (1): 2.3645%
+  HOLD (2): 95.2868%
+[[   460    698   4623]
+ [   485    704   4631]
+ [ 12076  15204 207256]]
+TrueAction
+2    234536
+1      5820
+0      5781
+Name: count, dtype: int64
+ActionHat
+2    216510
+1     16606
+0     13021
+Name: count, dtype: int64
+
+to now
+✅ Model Accuracy: 67.63% (166455/246137 matches)
+📊 TrueAction Class Distribution:
+  BUY (0):  2.3487%
+  SELL (1): 2.3645%
+  HOLD (2): 95.2868%
+[[   840   1467   3474]
+ [   879   1481   3460]
+ [ 27674  42728 164134]]
+TrueAction
+2    234536
+1      5820
+0      5781
+Name: count, dtype: int64
+ActionHat
+2    171068
+1     45676
+0     29393
+Name: count, dtype: int64
+
+so accuracy dumped but the results are actually better along lower diagonal.
