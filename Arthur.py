@@ -10,7 +10,7 @@ import pandas as pd
 import os
 
 # Internal Dependencies
-from utils.quantitative_extract import fetch_candles
+from utils.extract_quantitative import fetch_candles
 from utils.transform_cleaned import convert_to_tabular , clean_tabular
 from utils.load_cleaned import get_today_folder , load_cleaned_data
 from utils.transform_signal import acquire_proto_signal , decisionrule , transform_to_signal
