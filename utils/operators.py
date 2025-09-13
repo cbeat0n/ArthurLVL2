@@ -12,7 +12,8 @@
 
 
 # Dependencies
-
+from __future__ import annotations
+import requests
 
 # Data Vendor (vendor, bank, other digital ClientServer streams)
 class DataVendor: # Generic Data Vendor containing {x_j} None collection of all 
@@ -22,25 +23,50 @@ class DataVendor: # Generic Data Vendor containing {x_j} None collection of all
 # Trader(s) that decides what and when (timing) based on instrument and regime from vendor
 # trade function make it static with dynamic lot size
 class Trader:
-    def __init__(self):
-        self.mode = None
-        self.instrument = None
-        self.intakeGranularity = None
-        self.horizonGranularity = None
-        self.tradingPlatform = None
+    def __init__(self , mode : str , instrument : str , platform : Platform):
+        self.mode = mode
+        self.instrument = instrument
+        self.intakeGranularity = None # move to datavendor
+        self.horizonGranularity = None # move to datavendor
+        self.tradingPlatform = platform
         
     def close_trade(self ,  trade_id):
         # close_trade function partially inherited based on platform
-        return self.tradingPlatform.close_trade(self.mode , trade_id)
+
+        closure = self.tradingPlatform.close_trade(self.mode , trade_id)
+
+        if closure.get("orderFillTransaction"):
+            return {"status" : "filled" , "raw" : closure , 
+                    "order_id" : closure["orderFillTransaction"]["orderID"] , 
+                     "trade_id" : closure["orderFillTransaction"]["tradesClosed"][0]["tradeID"] }
+        elif closure.get("orderCancelTransaction"):
+            return {"status" : "left_open" , "raw" : closure , "order_id" : closure["orderCancelTransaction"]["orderID"]}
+        
 
     def cancel_order(self , order_id):
         # cancel_order function partially inherited based on platform
+
+        # FOK with market / lot size means no rolling orders to cancel... yet.
+        # leverage and high liquidity could mean rolling orders to cancel
+        # for now dynamic make order that allows for "this got cancelled"
+
         return self.tradingPlatform.cancel_order(self.mode , order_id)
 
 
-    def make_order(self , instrument : str , side , lot_size : float):
-        # cancel_order function partially inherited based on platform
-        return self.tradingPlatform.make_order(self.mode , instrument , side , lot_size)
+    def make_order(self , side , lot_size : float):
+        # make_order function partially inherited based on platform
+
+        order = self.tradingPlatform.make_order(self.mode , self.instrument , side , lot_size)
+
+        if order.get("orderFillTransaction") :
+            return {"status": "filled" , "raw" : order , 
+                    "order_id" : order["orderFillTransaction"]["orderID"],
+                    "trade_id" : order["orderFillTransaction"]["tradeOpened"]["tradeID"]}
+        
+        elif order.get("orderCancelTransaction"):
+            return {"status" : "killed" , "raw" : order , "order_id" : order["orderCancelTransaction"]["orderID"]}
+        
+        
     
 
 # Risk Manager that decides who and when (ignition) and where (vendor and platform).
@@ -70,7 +96,8 @@ class Platform: # Generic Platform containing {x_j} None collection of all
 # distance the two and 'tie shoelaces' with Arthur, making Arthur modular
 # with the global system. Might as well use Oanda for now, maybe interchange later.
 class OandaTrading(Platform): # Specific Platform with slightly crossed wires
-    def __init__(self): # and as normal as dynamic as possible with static info elsewhere.
+    def __init__(self, api_key : str): # and as normal as dynamic as possible with static info elsewhere.
+        self.authorization = api_key
         self.accountID = None # Point to Nothing , Set to Anything
         self.instrument = None # Point to Nothing, Set to Anything
         
@@ -152,15 +179,61 @@ class OandaTrading(Platform): # Specific Platform with slightly crossed wires
 
         return self.base[mode] + self.endpoints[endpoint][subEndpoint].format(**context)
     
-    def close_trade(mode , trade_id):
-        return None
+    def close_trade(self , mode , trade_id):
 
-    def cancel_order(mode , order_id):
-        return None
+        url = self.make_url(mode , "trade" , 3, tradeSpecifier = trade_id)
 
-    def make_order(mode , instrument : str , side , lot_size : float):
-        return None
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.authorization}",
+            "Accept-Datetime-Format" : "RFC3339"
+        }
+        
+        
+        body = {
+                "units" : "ALL" # Make it simple and close everything when possible.
+                # Make more dynamic LATER
+        }
     
+        response = requests.put(url, headers = headers , json = body)
+        
+        if response.status_code == 200:
+            return response.json() # finish or adapt, currently full body and can access all info
+        else:
+            raise ValueError(f"Error {response.status_code}: {response.text}")
+
+    def cancel_order(self , mode , order_id):
+        #see trader for details on why blank
+        return None
+
+    def make_order(self, mode , instrument : str , side : int, lot_size : int):
+
+        url = self.make_url(mode,"order",0)
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.authorization}",
+            "Accept-Datetime-Format" : "RFC3339"
+        }
+        
+        
+        body = {
+                    "order": {
+                        "units": str(side*lot_size),
+                        "instrument": instrument,
+                        "timeInForce": "FOK",
+                        "type": "MARKET",
+                        "positionFill": "DEFAULT"
+                    }
+                }
+
+        response = requests.post(url, headers = headers , json = body)
+        
+        if response.status_code == 201:
+            return response.json() # finish or adapt, currently full body and can access all info
+        else:
+            raise ValueError(f"Error {response.status_code}: {response.text}")
+        
 
 
 
