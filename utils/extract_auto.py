@@ -4,9 +4,10 @@
 # Dependencies
 import pandas as pd
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime , timezone
 import numpy as np
 import os
+from utils.operators import Trader
 
 # Extract the signal matrix into ETL-Auto.
 # Parquet later instead of .csv for efficiency but Bryan needs to understand why.
@@ -19,22 +20,22 @@ def extract_signal_matrix(signal_file):
     return signal
 
 
-def extract_final_matrix(base_dir , instrument):
+def extract_final_matrix(base_dir , trader : Trader):
 
-    date_str = datetime.now().strftime("%Y-%m-%d")
-
-    fpath = Path(base_dir) / "final" / f"finalized_data_{instrument}_{date_str}.csv"
+    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    os.makedirs(Path(base_dir) / "final", exist_ok=True)
+    fpath =  Path(base_dir) /  "final" / f"finalized_data_{trader.name}_{trader.instrument}_{date_str}.csv"
 
     if not fpath.exists():
 
         return {
             "exists" : False,
             "file" : fpath,
-            "df" : np.nan
+            "df" : None
         }
     
     final_matrix = pd.read_csv(fpath)
-    os.makedirs(fpath, exist_ok=True)
+    
 
     return {
         "exists" : True,

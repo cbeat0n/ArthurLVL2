@@ -23,7 +23,8 @@ class DataVendor: # Generic Data Vendor containing {x_j} None collection of all
 # Trader(s) that decides what and when (timing) based on instrument and regime from vendor
 # trade function make it static with dynamic lot size
 class Trader:
-    def __init__(self , mode : str , instrument : str , platform : Platform):
+    def __init__(self ,name : str, mode : str , instrument : str , platform : Platform):
+        self.name = name
         self.mode = mode
         self.instrument = instrument
         self.intakeGranularity = None # move to datavendor
@@ -78,18 +79,23 @@ class Trader:
 # Trading Platform
 class Platform: # Generic Platform containing {x_j} None collection of all 
     def __init__(self): # possible base and endpoints. Specific Platforms use subcollection.
+        self.authorization = None
         self.base = None
         self.endpoints = None
 
-    def make_url(self , mode : str, endpoint: str , subEndpoint: int, actionType: str):
+    def make_url(self , mode : str, endpoint: str , subEndpoint: int, **kw):
         # make_url generically uses a base, endpoint, and subEndpoint. 
         # Specifically, the context is the parameters used for the subEndpoint
         # and headers and params are added afterwards.
         # make_url lets all of the url be a string non formatted.
 
+        context = {}
+
+        context.update(**kw)
+
         # Platform make_url() uses actionType and does nothing with it because Platform doesn't exist.
         # Each subPlatform will 
-        return self.base[mode] + self.endpoints[endpoint][subEndpoint]
+        return self.base[mode] + self.endpoints[endpoint][subEndpoint].format(**context)
 
 # Oanda Trading Platform (different from Oanda as Data Vendor)
 # Currently OandaTrading is going to do both data and trading until I 

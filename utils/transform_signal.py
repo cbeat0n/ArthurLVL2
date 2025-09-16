@@ -62,6 +62,7 @@ def transform_to_signal(proto_signal):
     EPS_SMOOTHER = 1e-9 # Smooth only just a little, otherwise negligible
     SLOPE_LAG = 2 # Small lag for slope calculation
     
+    REGIME = (0,0) # formalize params vs hyperparams
 
     proto_signal["value"] = proto_signal["close"]
 

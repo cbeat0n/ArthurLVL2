@@ -20,9 +20,9 @@ def convert_to_tabular(candle_json):
     middleman = []
     for c in candle_json:
         row = {
-            "timestamp": c["time"],
+            "timestamp": str(c["time"]),
             "complete": c["complete"],
-            "volume": c["volume"],
+            "volume": float(c["volume"]),
             "open": float(c["mid"]["o"]),
             "high": float(c["mid"]["h"]),
             "low": float(c["mid"]["l"]),
