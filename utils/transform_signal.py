@@ -9,9 +9,6 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 
-# Load the .csv , will be changed when S3 / Glacier used.
-# This is done dynamically to return the most recent one, the one
-# that load_cleaned.py just loaded.
 
 def acquire_proto_signal(filename):
     
@@ -25,10 +22,13 @@ def acquire_proto_signal(filename):
 THETA_DEG = 5 # Degrees of theta angle
 EPSILON_MU = 0.1 # Return of mu
 
-
 def decisionrule(row):
     
     # Theta, Mu model dependent on regime structure in T,M space
+
+    # Nonlinear parameterization of theta x mu to be used for decision rule
+    # Later.
+
     if row["theta"] > THETA_DEG:
         if ( row["mu_small"] - row["mu_large"] ) / row["mu_large"] > EPSILON_MU:
             return 0 # BUY CALLSIGN
@@ -38,7 +38,6 @@ def decisionrule(row):
             return 2 # HOLD CALLSIGN DUE TO LACK OF CHANGE IN HARD/SOFT OF CURRENCY, dTheta NOISE
     else:
         return 2 # HOLD CALLSIGN 
-
         
 # Utility: Convert timestamp to seconds since epoch
 def convert_timestamp(ts_str):
@@ -48,8 +47,7 @@ def convert_timestamp(ts_str):
 
 def transform_to_signal(proto_signal):
 
-    # Hyperparameters to be tuned, in order of how to tune them for backtesting, usually.
-    # They are at least set up to be scoped.
+    # Parameters
     BETA_SMOOTHER = 0.25 # beta = {0.15,0.25,0.35,0.55,0.65,0.75} to start, 0.25 most fluid best separation
     EPS_BETA = 0.1 # Perturbs Beta, consider {0.025,0.05,0.1,0.15}, 0.05 best
     BETA_B = BETA_SMOOTHER*(1+EPS_BETA) #Beta Buy 
@@ -62,7 +60,11 @@ def transform_to_signal(proto_signal):
     EPS_SMOOTHER = 1e-9 # Smooth only just a little, otherwise negligible
     SLOPE_LAG = 2 # Small lag for slope calculation
     
-    REGIME = (0,0) # formalize params vs hyperparams
+    REGIME = (BETA_SMOOTHER , EPS_BETA, BETA_B , BETA_S , GS_REG , MREG , IREG,
+              SMALL_LAG , LARGE_LAG , EPS_SMOOTHER , SLOPE_LAG , THETA_DEG , EPSILON_MU)
+    
+    # The Regime is the market structure over time. These are the parameters. Anything below
+    # this line is a hyperparameter.
 
     proto_signal["value"] = proto_signal["close"]
 
@@ -80,7 +82,7 @@ def transform_to_signal(proto_signal):
     proto_signal["X_raw"] = pd.Series(proto_signal["obv_inc"], index=proto_signal.index).ewm(halflife=5, adjust=False).mean()
 
     # Causal rolling z-score (compute mean/std on t-1)
-    z_window = 180
+    z_window = 20
     proto_signal["X_m"] = proto_signal["X_raw"].rolling(z_window, min_periods=max(10, z_window//5)).mean().shift(1)
     proto_signal["X_sd"] = proto_signal["X_raw"].rolling(z_window, min_periods=max(10, z_window//5)).std(ddof=0).shift(1)
     proto_signal["X"] = (proto_signal["X_raw"] - proto_signal["X_m"]) / (proto_signal["X_sd"].replace(0, EPS_SMOOTHER))
@@ -195,9 +197,9 @@ def transform_to_signal(proto_signal):
     ### REWRITE CRYSTALLIZED MARGIN
     # Crystallized Margin coordinate -> mu_t = $"'(c)*h ~ backwards difference
 
-    proto_signal["margin"] = proto_signal["B"] - proto_signal["S"]
+    proto_signal["Margin"] = proto_signal["B"] - proto_signal["S"]
 
-    proto_signal["margin"] = proto_signal["margin"].round(4)
+    proto_signal["Margin"] = proto_signal["Margin"].round(4)
 
     proto_signal["mu_small"] = proto_signal["margin"].diff(SMALL_LAG).apply(lambda x : EPS_SMOOTHER if np.abs(x) < EPS_SMOOTHER else x) 
     # Approximate backwards diff
@@ -247,4 +249,5 @@ def transform_to_signal(proto_signal):
 
 
     # Drop intermediate columns if not needed
-    return proto_signal[["timestamp","t_sec","volume","value","B", "S", "margin", "theta" , "mu", "ActionHat"]]
+    return proto_signal[["timestamp","t_sec","open","high","low","close","volume",
+                         "value","X","Y","B","S","margin","theta","mu","ActionHat"]]

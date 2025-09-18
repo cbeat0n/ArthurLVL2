@@ -10,44 +10,86 @@
 <head>
   <meta charset="UTF-8">
   <link rel="stylesheet" href="{{ url_for('static', filename='shelbyflair.css') }}">
-  <title>Arthur — Front Room</title>
+  <title>Arthur — Parlor Room</title>
 </head>
 <body class="arthur-home">
   <div class="arthur-wrap">
-
-    <!-- Header -->
     <header class="arthur-header">
-      <h1 class="arthur-brand">Arthur - Front Room</h1>
-      <div class="arthur-sub">Expert Handicapper</div>
+      <h1 class="arthur-brand">Arthur - Parlor Room</h1>
+      <div class="arthur-sub">Master Handicapper</div>
     </header>
 
-    <!-- Hero -->
     <main class="container">
       <h1 class="hero-title">-Welcome to First Class-</h1>
 
-      <!-- Currency Pair Select -->
-      <form method="GET" action="/">
-        <label for="currencyPair">Choose Currency Pair:</label>
-        <select name="currencyPair" id="currencyPair">
-          <option value="USD_JPY">USD/JPY</option>
+      <!-- Control Panel -->
+      <form id="runForm">
+        <!-- Single FX pair -->
+        <label for="currencyPair">FX Pair:</label>
+        <select name="currencyPair" id="currencyPair" required>
+          <option value="USD_JPY" selected>USD/JPY</option>
+          <option value="USD_CHF">USD/CHF</option>
           <option value="USD_MXN">USD/MXN</option>
+          <option value="EUR_USD">EUR/USD</option>
         </select>
+
+        <!-- Intake granularity (data refresh) -->
+        <label for="intake">Intake Granularity:</label>
+        <select name="intake" id="intake" required>
+          <option value="S5" selected>S5</option>
+          <option value="S10">S10</option>
+          <option value="S15">S15</option>
+          <option value="S30">S30</option>
+        </select>
+
+        <!-- Horizon granularity (decision horizon) -->
+        <label for="horizon">Horizon Granularity:</label>
+        <select name="horizon" id="horizon" required>
+          <option value="M1" selected>M1</option>
+          <option value="M2">M2</option>
+          <option value="M5">M4</option>
+          <option value="M10">M5</option>
+          <option value="M15">M10</option>
+        </select>
+
+        <!-- Number of traders on this single pair -->
+        <label for="traders"># Traders on this pair:</label>
+        <select name="traders" id="traders" required>
+          <option value="1" selected>1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+        </select>
+
         <button type="submit">Run</button>
       </form>
 
-      {% if signalMatrix %}
-      <!-- Open Market View -->
-      <form method="GET" action="/visualize/{{ instrument }}" target="_blank">
-        <input type="hidden" name="currencyPair" value="{{ instrument }}">
-        <input type="hidden" name="granularity" value="{{ granularity }}">
-        <input type="hidden" name="timestamp" value="{{ safe_timestamp }}">
-        <input type="hidden" name="signalMatrix" value='{{ signalMatrix | tojson }}'>
-        <button type="submit">Open Market View for {{ instrument }}</button>
-      </form>
-      {% endif %}
-    </main>
+      <!-- Vault Button -->
+       <form method = "GET" action = "/accounting" target="_blank">
+        <button type ="submit">Enter Vault</button>
+       </form>
 
+
+    </main>
   </div>
+
+  <script>
+    // Open N visualize tabs without sending any big payloads
+    document.getElementById('runForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+
+      const pair = document.getElementById('currencyPair').value;
+      const intake = document.getElementById('intake').value;
+      const horizon = document.getElementById('horizon').value;
+      const n = parseInt(document.getElementById('traders').value, 10);
+
+      // Open N tabs: /visualize/<instrument>?granularity=<intake>&horizon=<horizon>&trader=<k>
+      for (let k = 1; k <= n; k++) {
+        const url = `/visualize/${encodeURIComponent(pair)}?granularity=${encodeURIComponent(intake)}&horizon=${encodeURIComponent(horizon)}&trader=${k}`;
+        window.open(url, '_blank');
+      }
+    });
+  </script>
 </body>
 </html>
 

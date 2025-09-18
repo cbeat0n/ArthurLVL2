@@ -13,8 +13,8 @@ import os # Works alongside dotenv for getenv function
 import json # Keeping for JSON convertability, might go tabular / columnar
 import requests # Library for HTTP GET et al requests
 
-# Currently system nominal will need to be updated for more robust DE,SE,Cloud, Cybersecurity, AI/ML needs.
-# 08212025 1429 CST
+# Internal Dependencies
+from utils.operators import DataVendor , Platform
 
 # Load environment variables from the .env file
 load_dotenv()
@@ -22,41 +22,29 @@ load_dotenv()
 # Retrieve OANDA API Key from .env file
 oanda_demo_api_key = os.getenv("OANDADEMOAPIKEY")
 
-## FOR LIVE TRADING LVL1 TEST:
+## FOR LIVE TRADING:
 ## oanda_api_key = os.getenv("OANDAAPIKEY")
 
-# Modular Extraction v0
-
-# Create base URL.
-demo_base_url = "https://api-fxpractice.oanda.com"
-
-## FOR LIVE TRADING LVL1 TEST:
-## live_base_url = "https://api-fxtrade.oanda.com"
 
 
-def fetch_candles(instrument="USD_JPY", granularity="M1", count=120, price="M", timezone="UTC"):
-    """
-    Fetch candle data from OANDA API.
+def fetch_candles(mode : str , vendor : DataVendor , platform : Platform , instrument="USD_JPY", intake="S5", count=3600, price="M", timezone="UTC"):
     
-    Args:
-        instrument (str): e.g., "USD_JPY"
-        granularity (str): e.g., "S5" , "S10
-        count (int): number of candles
-        price (str): "M" for midpoint, "B" for bid, "A" for ask
-        timezone (str): time alignment, usually "UTC"
-    
-    Returns:
-        list[dict]: candle data
-    """
-    instrument_url = f"/v3/instruments/{instrument}/candles"
-    url = demo_base_url + instrument_url
+    # Technically ETL-Base runs off vendors. However OANDA does not separate these
+    # two services so modularly agnostic code will intake a vendor and a platform.
+
+    ### IMPORTANT!! THIS IS BUILT TO RUN ON OANDA BECAUSE THAT IS WHAT IS BEING USED.
+    ### COMPLETE MODULAR AGNOSTIC CODE WOULD USE A VENDOR. 
+    ### 09182025 1140 CST LOOKING INTO FINAGE ETC AND SEP PLATFORMS
+
+
+    url = platform.make_url(mode , "instrument" , 0)
 
     headers = {
         "Authorization": f"Bearer {oanda_demo_api_key}"
     }
 
     params = {
-        "granularity": granularity,
+        "granularity": intake,
         "count": count,
         "price": price,
         "alignmentTimezone": timezone
@@ -65,6 +53,6 @@ def fetch_candles(instrument="USD_JPY", granularity="M1", count=120, price="M", 
     response = requests.get(url, headers=headers, params=params)
 
     if response.status_code == 200:
-        return response.json().get("candles", []) , instrument , granularity
+        return response.json().get("candles", []) , instrument , intake
     else:
         raise ValueError(f"Error {response.status_code}: {response.text}")

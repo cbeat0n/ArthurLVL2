@@ -7,8 +7,6 @@
 # Dependencies
 import pandas as pd
 
-# Currently system nominal will need to be updated for more robust DE,SE,Cloud, Cybersecurity, AI/ML needs.
-# 08212025 1504 CST
 
 # Load the signal matrix into today's folder as signal_data_instrument_timestamp.
 

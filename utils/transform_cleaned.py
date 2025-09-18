@@ -13,38 +13,49 @@ from datetime import datetime # For timestamp conversions
 
 
 def convert_to_tabular(candle_json):
-    """
-    Converts OANDA candle JSON into tabular format.
-    Returns middleman list of dicts.
-    """
+    
     middleman = []
     for c in candle_json:
         row = {
             "timestamp": str(c["time"]),
-            "complete": c["complete"],
-            "volume": float(c["volume"]),
             "open": float(c["mid"]["o"]),
             "high": float(c["mid"]["h"]),
             "low": float(c["mid"]["l"]),
-            "close": float(c["mid"]["c"])
+            "close": float(c["mid"]["c"]),
+            "volume": float(c["volume"])
         }
         middleman.append(row)
     return middleman
 
-def clean_tabular(middleman):
-    """
-    Converts middleman (list of dicts) into cleaned DataFrame.
-    Assumes minimal cleaning needed; returns DataFrame and safe timestamp string.
-    """
+def clean_tabular(middleman ,  horizon : str):
+    
     cleaned_df = pd.DataFrame(middleman)
+
+    cleaned_df["timestamp"] = pd.to_datetime(cleaned_df["timestamp"] , utc = True , errors = 'coerce')
+    cleaned_df = cleaned_df.sort_values('timestamp').set_index('timestamp')
+
+    # Maps are made for OANDA, might need to be changed to be completely modular and agnostic.
+
+    horizon_rule = {
+        "M1" : "1T",
+        "M2" : "2T",
+        "M4" : "4T",
+        "M5" : "5T",
+        "M10" : "10T"
+    }[horizon]
+
+    agg = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
+
+    horizon_df = (
+        cleaned_df.resample(horizon_rule, label='right', closed='right').agg(agg)
+          .dropna(how = 'any').reset_index()
+    )
     
     # No missing or duplicates per 8/6/25 QA — note kept for audit
-    safe_timestamp = pd.to_datetime(cleaned_df["timestamp"].iloc[-1]).strftime("%Y-%m-%dT%H-%M-%S")
+    safe_timestamp = pd.to_datetime(horizon_df["timestamp"].iloc[-1]).strftime("%Y-%m-%dT%H-%M-%S")
     
-    return cleaned_df, safe_timestamp
+    return horizon_df, safe_timestamp
 
-# Usage example (called by driver, not run on import):
-# middleman = convert_to_tabular(instrument_candles)
-# cleaned_df, safe_timestamp = clean_tabular(middleman)
+
 
 

@@ -11,8 +11,6 @@ import pandas as pd # Current L process is .csv locally
 import os
 from datetime import datetime
 
-# Currently system nominal will need to be updated for more robust DE,SE,Cloud, Cybersecurity, AI/ML needs.
-# 08212025 1429 CST
 
 # Function creates a folder for today if not already existing
 def get_today_folder(base_dir):
@@ -23,11 +21,6 @@ def get_today_folder(base_dir):
     # Make the directory if it doesn't exist
     os.makedirs(full_path, exist_ok=True)
     return full_path
-
-# Naming convention minimal and can be updated, contains instrment pair
-# and timestamp.
-# At some point we will need to add a storage by the day mechanism. Not right
-# now.
 
 # Load the cleaned data into today's folder as cleaned_data_instrument_timestamp.
 
