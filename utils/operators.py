@@ -14,6 +14,8 @@
 # Dependencies
 from __future__ import annotations
 import requests
+from datetime import datetime, time
+from zoneinfo import ZoneInfo  # Python 3.9+
 
 # Data Vendor (vendor, bank, other digital ClientServer streams)
 class DataVendor: # Generic Data Vendor containing {x_j} None collection of all 
@@ -23,12 +25,12 @@ class DataVendor: # Generic Data Vendor containing {x_j} None collection of all
 # Trader(s) that decides what and when (timing) based on instrument and regime from vendor
 # trade function make it static with dynamic lot size
 class Trader:
-    def __init__(self ,name : str, mode : str , instrument : str , platform : Platform):
+    def __init__(self ,name : str, mode : str , instrument : str , platform : Platform , intake : object , horizon : object):
         self.name = name
         self.mode = mode
         self.instrument = instrument
-        self.intakeGranularity = None # move to datavendor
-        self.horizonGranularity = None # move to datavendor
+        self.intakeGranularity = intake # move to datavendor
+        self.horizonGranularity = horizon # move to datavendor
         self.tradingPlatform = platform
         
     def close_trade(self ,  trade_id):
@@ -75,6 +77,78 @@ class Trader:
 # the value itself is decided by dynamic information based on the regime. 
 # trader makes only data driven decisions
 # regime provides the information. if bearish low leverage and one medium for example.
+class RiskManager:
+    def __init__(self , name : str , team : list , vendor : DataVendor , platform : Platform):
+        self.name = name
+        self.team = team
+        self.vendor = vendor
+        self.platform = platform
+
+    def ignition(self):
+        #MVP involves a static ignition which comes down to
+        # "Is Black Hole Enterprises Open" and "Are we under budget"
+
+        CHI = ZoneInfo("America/Chicago")
+        START = time(6, 55)   # 06:55 AM CST/CDT
+        END   = time(15, 0)   # 03:00 PM CST/CDT
+
+        def in_bhe_hours(now_local: datetime | None = None) -> bool:
+            """True iff Mon–Fri, 06:55–15:00 (America/Chicago)."""
+            if now_local is None:
+                now_local = datetime.now(CHI)
+            # weekend: Saturday=5, Sunday=6
+            if now_local.weekday() >= 5:
+                return False
+            t = now_local.time()
+            return START <= t < END
+        
+        def in_budget(): 
+            # Roughly 15 trades/day per trader budget
+            # M1-M10 rough horizon gives 30-40 daily trades, to be found.
+            # Only upswings on buy and sell only means roughly half of that.
+            # Set max trades daily per trader below.
+            MAX_TRADES_PER_TRADER = 15
+            STATIC_LOTSIZE = 1000
+            
+            # Query closed trades today (for whole account/team)
+            spent_today = self.platform.count_trades_today()*STATIC_LOTSIZE
+            
+            # Budget scales with team size
+            budget = MAX_TRADES_PER_TRADER * len(self.team)*STATIC_LOTSIZE
+            
+            return spent_today < budget # trades today < total trades on the team daily
+            # spent today can be made dynamic
+        
+        if not in_bhe_hours():
+            print("You are not in Black Hole Enterprises business hours.")
+            raise SystemExit(0)
+        elif in_budget():
+            return True
+        else:
+            #Ignition gates whether or not trading, but does not shut the system off unless
+            # not INBHEHOURS.
+            return False
+        
+
+
+    def insiderange(self , start : float , end : float , val : float) -> bool:
+        return (start <= val <= end)
+
+    
+    def gate_lotsize(self):
+        #Currently very static but becomes dynamic. 
+        lotsizemin = 1000 
+        lotsizemax = 2000
+        lotsizebest = 1000 # gate functions give a range and a best value
+        # and the best is not always a min or a max but is always within range
+
+        return (lotsizemin , lotsizemax , lotsizebest)
+    
+    
+    # RM has the key on all trading on "when business open" and
+    # gates parameters. More gates coming. Gates minimize risk
+    # whatever that looks like but traders are the dynamic ones. 
+    # RM are controllers.
 
 # Trading Platform
 class Platform: # Generic Platform containing {x_j} None collection of all 
