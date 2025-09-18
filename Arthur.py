@@ -43,16 +43,16 @@ def home():
 
     # Step 3: Load Cleaned Data
     data_folder = get_today_folder(os.path.join(BASE_DIR, "data"))
-    print(f"Data folder being used: {data_folder}")  # Error handling and debug clauses
+    
     filename = load_cleaned_data(data_folder, cleaned_data, instrument, safe_timestamp)
-    print(f"Cleaned data saved to: {filename}")  # Error handling and debug clauses
+   
     # Step 4: Generate Signal Matrix
     proto_signal = acquire_proto_signal(filename)
     signal_matrix = transform_to_signal(proto_signal)
 
     # Step 5: Load Signal Matrix
     signal_filename = load_signal_matrix(data_folder , signal_matrix, instrument, safe_timestamp)
-    print(f"Signal data saved to: {signal_filename}") # Error handling and debug clauses
+ 
 
     # Step 6: Prepare for Loading Statistics
     latest_signal = signal_matrix.iloc[-1]
@@ -79,7 +79,7 @@ def home():
 
 @Arthur.route("/visualize/<instrument>", methods=["GET"])
 def visualize_market(instrument):
-    granularity = request.args.get("granularity" , default = "S15")
+    granularity = request.args.get("granularity" , default = "S15") #No Default. Only put in.
 
     # Step 1: Extract raw candle data
     candles, instrument, granularity = fetch_candles(instrument=instrument , granularity=granularity)
@@ -99,7 +99,7 @@ def visualize_market(instrument):
 
     # Step 5: Load Signal Matrix
     signal_filename = load_signal_matrix(data_folder , signal_matrix, instrument, safe_timestamp)
-    print(f"Signal data saved to: {signal_filename}") # Error handling and debug clauses
+    
 
     signal_dict = signal_matrix.to_dict(orient="records")
 

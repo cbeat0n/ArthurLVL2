@@ -14,7 +14,7 @@
 # Dependencies
 from __future__ import annotations
 import requests
-from datetime import datetime, time
+from datetime import date , datetime, time
 from zoneinfo import ZoneInfo  # Python 3.9+
 
 # Data Vendor (vendor, bank, other digital ClientServer streams)
@@ -111,7 +111,11 @@ class RiskManager:
             STATIC_LOTSIZE = 1000
             
             # Query closed trades today (for whole account/team)
-            spent_today = self.platform.count_trades_today()*STATIC_LOTSIZE
+            running_trades = 0
+            for trader in self.team:
+                running_trades += trader.platform.count_trades(trader.mode , trader.instrument)
+
+            spent_today = running_trades*STATIC_LOTSIZE
             
             # Budget scales with team size
             budget = MAX_TRADES_PER_TRADER * len(self.team)*STATIC_LOTSIZE
@@ -121,7 +125,7 @@ class RiskManager:
         
         if not in_bhe_hours():
             print("You are not in Black Hole Enterprises business hours.")
-            raise SystemExit(0)
+            return "Exit System"
         elif in_budget():
             return True
         else:
@@ -268,7 +272,7 @@ class OandaTrading(Platform): # Specific Platform with slightly crossed wires
             "Authorization": f"Bearer {self.authorization}",
             "Accept-Datetime-Format" : "RFC3339"
         }
-        
+         
         
         body = {
                 "units" : "ALL" # Make it simple and close everything when possible.
@@ -316,5 +320,50 @@ class OandaTrading(Platform): # Specific Platform with slightly crossed wires
         
 
 
+    def count_trades(self , mode , instrument : str):
+        
+        url = self.make_url(mode , "trade", 0)
 
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.authorization}",
+            "Accept-Datetime-Format" : "RFC3339"
+        }
 
+        params = {
+            "state" : "CLOSED",
+            "instrument" : instrument,
+            "count" : 500 # Maximum allowed, filter manually by time, other platform might 
+            # allow more but... what individual 'simulated trader' needs N > 500?
+        }
+
+        request_body = requests.get(url = url , headers = headers , params = params)
+
+        if request_body.status_code == 200:
+            last_count_trades = request_body.json()["trades"]
+        else:
+            raise ValueError(f"Error {request_body.status_code} {request_body.text}")
+        
+        chi = ZoneInfo("America/Chicago")
+        now_chi = datetime.now(chi)
+        midnight_chi = datetime(year = now_chi.year , month = now_chi.month , day = now_chi.day , tzinfo = ZoneInfo("America/Chicago"))
+
+        def to_chi(rfc3339_utc: str) -> datetime:
+            # handle nanoseconds: split off 'Z', then split fractional seconds
+            base = rfc3339_utc.rstrip("Z")
+            if "." in base:
+                base = base.split(".")[0]
+            dt_utc = datetime.fromisoformat(base).replace(tzinfo=ZoneInfo("UTC"))
+            return dt_utc.astimezone(chi)
+
+        # local filter: today, optionally by instrument
+        count = 0
+        for t in last_count_trades:
+            ct = t.get("closeTime")
+            if not ct:
+                continue
+            ct_chi = to_chi(ct)
+            if midnight_chi <= ct_chi <= now_chi:
+                count += 1
+
+        return count
