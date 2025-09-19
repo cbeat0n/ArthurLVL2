@@ -7,6 +7,7 @@
 # External Dependencies
 from flask import Flask, render_template, request
 import pandas as pd
+import time
 import os
 
 # Internal Dependencies
@@ -15,6 +16,7 @@ from utils.transform_cleaned import convert_to_tabular , clean_tabular
 from utils.load_cleaned import get_today_folder , load_cleaned_data
 from utils.transform_signal import acquire_proto_signal , decisionrule , transform_to_signal
 from utils.load_signal import load_signal_matrix
+from utils.operators import DataVendor , Platform , OandaTrading , RiskManager , Trader
 
 
 # Initialize Flask App and needed parameters.
@@ -30,42 +32,20 @@ def home():
 
 @Arthur.route("/visualize/<instrument>", methods=["GET"])
 def visualize_market(instrument):
-    granularity = request.args.get("granularity" , default = "S15") #No Default. Only put in.
-
-
-    ## ETL-Base : ETLTL
-
-    # Step 1: Extract raw candle data
-    candles, instrument, granularity = fetch_candles(instrument=instrument , granularity=granularity)
-
-    # Step 2: Convert and clean
-    tabular_data = convert_to_tabular(candles)
-    cleaned_data, safe_timestamp = clean_tabular(tabular_data)
-
-    # Step 3: Load Cleaned Data
-    data_folder = get_today_folder(os.path.join(BASE_DIR, "data"))
-    filename = load_cleaned_data(data_folder, cleaned_data, instrument, safe_timestamp)
-
-
-    # Step 4: Generate Signal Matrix
-    proto_signal = acquire_proto_signal(filename)
-    signal_matrix = transform_to_signal(proto_signal)
-
-    # Step 5: Load Signal Matrix
-    signal_filename = load_signal_matrix(data_folder , signal_matrix, instrument, safe_timestamp)
     
-
-    signal_dict = signal_matrix.to_dict(orient="records")
     
-
-    ## ETL-Auto : ETL
-
+    # Code it up to par so that this is updated, internal and return
+    # Accounting will take homepage and spin up Arthur Instance
+    # which is a team of risk managers, or team of team of traders, so 
+    # I_n = rm*traders
+    # Accounting spits out the information for each RM which is the market visualized
+    # on the asset class.
 
     return render_template("market_view.html",
                            signalMatrix=signal_dict,
                            instrument=instrument,
-                           granularity=granularity)
-
+                           granularity=intake)
+    
 
 @Arthur.route("/accounting", methods = ["GET"])
 def enter_vault():
@@ -74,3 +54,5 @@ def enter_vault():
 
 if __name__ == "__main__":
     Arthur.run(debug=True)
+
+

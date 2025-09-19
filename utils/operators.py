@@ -14,8 +14,180 @@
 # Dependencies
 from __future__ import annotations
 import requests
-from datetime import date , datetime, time
+from datetime import date , datetime
 from zoneinfo import ZoneInfo  # Python 3.9+
+import os
+import pandas as pd
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Event
+import time
+
+# Internal Dependencies
+from utils.extract_quantitative import fetch_candles
+from utils.transform_cleaned import convert_to_tabular , clean_tabular
+from utils.load_cleaned import get_today_folder , load_cleaned_data
+from utils.transform_signal import acquire_proto_signal , decisionrule , transform_to_signal
+from utils.load_signal import load_signal_matrix
+
+from utils.extract_auto import extract_signal_matrix , extract_final_matrix
+from utils.transform_auto import finalize_records
+from utils.load_auto import load_final_data
+
+
+class ArthurConfig():
+    def __init__(self , mode : str , vendor : DataVendor , platform : Platform , instrument : str,
+                 intake : str , horizon : str):
+        self.mode = mode
+        self.vendor = vendor
+        self.platform = platform
+        self.registry = None
+        self.instrument = instrument
+        self.intake = intake
+        self.horizon = horizon
+        self.stop_event = Event()  # allows graceful shutdown of all threads
+
+class Arthur():
+    def __init__(self , cfg : ArthurConfig,  managers : list , base_dir : str):
+        self.config = cfg
+        self.managers = managers # Threading on trades MVP later Multiprocessing
+        # Managers all share same instrument per instance of Arthur.
+        # Managers might have different strategies. MVP is one Manager.
+        self.base_dir = base_dir
+    
+    def set_registry(self , registry : dict):
+        # registry is {vendorKey : key1 , platformKey : key2}
+        self.config.registry = registry
+
+
+    def _ignition_A(self):
+        states = [m.ignition() for m in self.managers]
+        return "OPEN" if all(s == "OPEN" for s in states) else "CLOSED"
+    
+    def trader_cycle(self , marketfile : str , manager : RiskManager , trader : Trader , kw : dict):
+        """One trader’s cycle (one pass). Call in a loop if you want continuous intake."""
+        # 1) Read latest signal matrix (shared file, but re-read per intake cycle is fine)
+        market = extract_signal_matrix(marketfile)  # pd.DataFrame
+
+        # 2) Trader decides (and may place orders)
+        trader.decision_loop(manager, market)
+
+        # 3) Finalize & persist telemetry
+        logs = extract_final_matrix(self.base_dir, trader)
+        if logs["exists"]:
+            final_matrix = finalize_records(market, trader, record=logs["df"], **kw)
+        else:
+            final_matrix = finalize_records(market, trader, **kw)
+
+        load_final_data(final_matrix, logs["file"])
+        return trader.name
+    
+    def _acquire_market(self):
+        ## ETL-Base : ETLTL
+        # Make internal names same as ETL-Base
+        # Step 1: Extract raw candle data
+        candles, instrument, intake = fetch_candles(instrument=self.config.instrument, intake = self.config.intake)
+
+        # Step 2: Convert and clean
+        tabular_data = convert_to_tabular(candles)
+        cleaned_data, safe_timestamp = clean_tabular(tabular_data , horizon = self.config.horizon)
+
+        # Step 3: Load Cleaned Data
+        data_folder = get_today_folder(os.path.join(self.base_dir, "data"))
+        filename = load_cleaned_data(data_folder, cleaned_data, instrument, safe_timestamp)
+
+
+        # Step 4: Generate Signal Matrix
+        proto_signal = acquire_proto_signal(filename)
+        signal_matrix = transform_to_signal(proto_signal)
+
+        # Step 5: Load Signal Matrix
+        signal_filename = load_signal_matrix(data_folder , signal_matrix, instrument, safe_timestamp)
+        
+
+        signal_dict = signal_matrix[["timestamp" , "value",
+                        "B","S","theta","mu","ActionHat"]].to_dict(orient="records")
+
+        return signal_dict , signal_filename # Is a list of dictionaries , JS needs JSON
+    
+
+    def _market_cycle(self , marketfile : str):
+        # market cycle 
+        # on intake granularity, run arthur into rms into each trader and have them make 
+        # their decision of B S H.
+
+        # kwargs must be instantiated. Context matters, these work on OANDA.
+        kw = {
+        "t_o_e" : "order",
+        "t_o_s" : 0,
+        "t_t_e" : "trade",
+        "t_t_s" : 0,
+        "pricing" : "pricing",
+        "pricing_sub" : 1,
+        "acc_e" : "account",
+        "acc_s" : 1,
+        "transaction_e" : "transaction",
+        "transaction_s" : 0
+    }
+    
+
+        # Flatten all traders across all managers
+        trader_pairs = [(m, t) for m in self.managers for t in m.team]
+        if not trader_pairs:
+            return
+
+        start = time.time()
+        # Size pool to number of traders (cap if needed)
+        with ThreadPoolExecutor(max_workers=len(trader_pairs)) as pool:
+            futures = [
+                pool.submit(self.trader_cycle,marketfile, m, t, kw)
+                for (m, t) in trader_pairs
+            ]
+            for f in as_completed(futures):
+                name = f.result()  # will raise if worker threw
+                #print(f"[cycle] {name} done")
+                # Timing takes up space. Contextual.
+
+        #print(f"[cycle] duration: {time.time() - start:.3f}s")
+        # Timing takes up space. Contextual.
+
+    def _accounting(self):
+        # go through account/summary and aggregate for account wide.
+        # also give number of rm, traders per team , total traders that day.
+
+        traders = [t for m in self.managers for t in m.team]
+
+        summaries = []
+        account_summary = [{}]
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.registry["platformKey"]}",
+            "Accept-Datetime-Format" : "RFC3339"
+        }
+        
+        for trader in traders:
+            summary_url = trader.platform.make_url(trader.mode , "account" , 2)
+
+            response = requests.get(url = summary_url, headers = headers)
+
+            if response.status_code == 200:
+                summaries.append(response.json()["account"])
+            else:
+                raise ValueError(f"Error {response.status_code}: {response.text}")
+            
+        account_summary[0]["NAV"] = sum([float(summary["NAV"]) for summary in summaries])
+        account_summary[0]["balance"] = sum([float(summary["balance"]) for summary in summaries])
+        account_summary[0]["openPositionCount"] = sum([float(summary["openPositionCount"]) for summary in summaries])
+        account_summary[0]["openTradeCount"] = sum([float(summary["openTradeCount"]) for summary in summaries])
+        account_summary[0]["pendingOrderCount"] = sum([float(summary["pendingOrderCount"]) for summary in summaries])
+        account_summary[0]["pl"] = sum([float(summary["pl"]) for summary in summaries])
+        account_summary[0]["RMs"] = len(self.managers)
+        account_summary[0]["minTraders"] = min([len(m.team) for m in self.managers])
+        account_summary[0]["maxTraders"] = max([len(m.team) for m in self.managers])
+        account_summary[0]["numTraders"] = len(traders)
+
+        return account_summary
+
 
 # Data Vendor (vendor, bank, other digital ClientServer streams)
 class DataVendor: # Generic Data Vendor containing {x_j} None collection of all 
@@ -25,18 +197,24 @@ class DataVendor: # Generic Data Vendor containing {x_j} None collection of all
 # Trader(s) that decides what and when (timing) based on instrument and regime from vendor
 # trade function make it static with dynamic lot size
 class Trader:
-    def __init__(self ,name : str, mode : str , instrument : str , platform : Platform , intake : object , horizon : object):
+    def __init__(self ,name : str, mode : str , instrument : str , platform : Platform , intake : str , horizon : str):
         self.name = name
         self.mode = mode
         self.instrument = instrument
-        self.intakeGranularity = intake # move to datavendor
-        self.horizonGranularity = horizon # move to datavendor
-        self.tradingPlatform = platform
+        self.intakeGranularity = intake # RM puts this in
+        self.horizonGranularity = horizon # RM puts this in
+        self.platform = platform
+        self.accountID = None # move accountID focus from platform to trader, 
+        # one platform multiple traders and then the traders call the platform with their 
+        # id.
+
+    def set_trader_account(self , accountID : str):
+        self.accountID = accountID
         
     def close_trade(self ,  trade_id):
         # close_trade function partially inherited based on platform
 
-        closure = self.tradingPlatform.close_trade(self.mode , trade_id)
+        closure = self.platform.close_trade(self.mode , trade_id)
 
         if closure.get("orderFillTransaction"):
             return {"status" : "filled" , "raw" : closure , 
@@ -53,13 +231,13 @@ class Trader:
         # leverage and high liquidity could mean rolling orders to cancel
         # for now dynamic make order that allows for "this got cancelled"
 
-        return self.tradingPlatform.cancel_order(self.mode , order_id)
+        return self.platform.cancel_order(self.mode , order_id)
 
 
-    def make_order(self , side , lot_size : float):
+    def make_order(self , side , lot_size : float , reduce_only : bool):
         # make_order function partially inherited based on platform
 
-        order = self.tradingPlatform.make_order(self.mode , self.instrument , side , lot_size)
+        order = self.platform.make_order(self.mode , self.instrument , side , lot_size , reduce_only)
 
         if order.get("orderFillTransaction") :
             return {"status": "filled" , "raw" : order , 
@@ -70,7 +248,72 @@ class Trader:
             return {"status" : "killed" , "raw" : order , "order_id" : order["orderCancelTransaction"]["orderID"]}
         
         
-    
+    def decision_loop(self , manager : RiskManager , market : pd.DataFrame):
+        latest = market.iloc[-1]
+        
+        decisioncall = latest["ActionHat"] # 0 B 1 S 2 H
+
+        action = ["BUY","SELL","HOLD"][decisioncall]
+
+        #MVP is make orders and trade them. Sell immediately. Crude but will work.
+
+        if action == "HOLD":
+            # Hold for now.
+            return {"action" : action , "status" : "no operational change"}
+            
+        elif action == "SELL":
+            #Sell everything and minimize exposure , keep EOD empty or small.
+            # RM not gating sell lotsize right now
+            # if currentAmount 0:
+            # return something
+            # elif currentAmount > 0:
+
+            accountdetailsurl = self.platform.make_url(self.mode , "account",1)
+            accountdetails = requests.get(url = accountdetailsurl)
+            #make robust later
+            account = accountdetails.json()["account"]
+            positions = account["positions"]
+            fxidx = [p["instrument"] for p in positions].index(self.instrument)
+            pointedposition = positions[fxidx]
+            currentLong = float(pointedposition["long"]["units"])
+
+            if currentLong > 0:
+                static_lotsize = 1005
+
+                (minsize , maxsize , bestsize) = manager.gate_lotsize()
+                
+                if manager.insiderange(minsize , maxsize, static_lotsize):
+                    lot_size = static_lotsize
+                else: # outside range for dynamic
+                    lot_size = bestsize
+
+
+                # Extra Long not terrible at small size, 1e-6 for smoothness
+                if currentLong + 1e-6 < lot_size:
+                    return {"action" : action , "status" : "stock less than static budget, wait"}
+
+                order = self.make_order(side = -1 , lot_size= lot_size , reduce_only = True)
+
+                if order["status"] == "filled":
+                    return order
+            else:
+                return {"action" : action , "status" : "no stock, wait for BUY"}
+            
+        else: # action == "BUY"
+            # Make a single order.
+            static_lotsize = 1005
+
+            (minsize , maxsize , bestsize) = manager.gate_lotsize()
+
+            if manager.insiderange(minsize , maxsize, static_lotsize):
+                lot_size = static_lotsize
+            else: # outside range for dynamic
+                lot_size = bestsize
+
+            order = self.make_order(side = 1 , lot_size= lot_size , reduce_only = False)
+
+            if order["status"] == "filled": 
+                return order
 
 # Risk Manager that decides who and when (ignition) and where (vendor and platform).
 # rm caps values like pnl and how much notional and how much leverage but 
@@ -78,62 +321,65 @@ class Trader:
 # trader makes only data driven decisions
 # regime provides the information. if bearish low leverage and one medium for example.
 class RiskManager:
-    def __init__(self , name : str , team : list , vendor : DataVendor , platform : Platform):
+    def __init__(self , name : str , vendor : DataVendor , platform : Platform):
         self.name = name
-        self.team = team
+        self.team = None
         self.vendor = vendor
         self.platform = platform
 
-    def ignition(self):
-        #MVP involves a static ignition which comes down to
-        # "Is Black Hole Enterprises Open" and "Are we under budget"
+    def in_budget(self): 
+                # Roughly 15 trades/day per trader budget
+                # M1-M10 rough horizon gives 30-40 daily trades, to be found.
+                # Only upswings on buy and sell only means roughly half of that.
+                # Set max trades daily per trader below.
+                MAX_TRADES_PER_TRADER = 15
+                STATIC_LOTSIZE = 1000
+                
+                # Query closed trades today (for whole account/team)
+                running_trades = 0
+                for trader in self.team:
+                    running_trades += trader.platform.count_trades(trader.mode , trader.instrument)
+
+                spent_today = running_trades*STATIC_LOTSIZE
+                
+                # Budget scales with team size
+                budget = MAX_TRADES_PER_TRADER * len(self.team)*STATIC_LOTSIZE
+                
+                return spent_today < budget # trades today < total trades on the team daily
+                # spent today can be made dynamic
+
+    def in_bhe_hours(self,now_local: datetime | None = None) -> bool:
+        """True iff Mon–Fri, 06:55–15:00 (America/Chicago)."""
 
         CHI = ZoneInfo("America/Chicago")
         START = time(6, 55)   # 06:55 AM CST/CDT
         END   = time(15, 0)   # 03:00 PM CST/CDT
 
-        def in_bhe_hours(now_local: datetime | None = None) -> bool:
-            """True iff Mon–Fri, 06:55–15:00 (America/Chicago)."""
-            if now_local is None:
-                now_local = datetime.now(CHI)
-            # weekend: Saturday=5, Sunday=6
-            if now_local.weekday() >= 5:
-                return False
-            t = now_local.time()
-            return START <= t < END
-        
-        def in_budget(): 
-            # Roughly 15 trades/day per trader budget
-            # M1-M10 rough horizon gives 30-40 daily trades, to be found.
-            # Only upswings on buy and sell only means roughly half of that.
-            # Set max trades daily per trader below.
-            MAX_TRADES_PER_TRADER = 15
-            STATIC_LOTSIZE = 1000
-            
-            # Query closed trades today (for whole account/team)
-            running_trades = 0
-            for trader in self.team:
-                running_trades += trader.platform.count_trades(trader.mode , trader.instrument)
-
-            spent_today = running_trades*STATIC_LOTSIZE
-            
-            # Budget scales with team size
-            budget = MAX_TRADES_PER_TRADER * len(self.team)*STATIC_LOTSIZE
-            
-            return spent_today < budget # trades today < total trades on the team daily
-            # spent today can be made dynamic
-        
-        if not in_bhe_hours():
-            print("You are not in Black Hole Enterprises business hours.")
-            return "Exit System"
-        elif in_budget():
-            return True
-        else:
-            #Ignition gates whether or not trading, but does not shut the system off unless
-            # not INBHEHOURS.
+        if now_local is None:
+            now_local = datetime.now(CHI)
+        # weekend: Saturday=5, Sunday=6
+        if now_local.weekday() >= 5:
             return False
+        t = now_local.time()
+        return START <= t < END
         
 
+    def ignition(self):
+        #MVP involves a static ignition which comes down to
+        # "Is Black Hole Enterprises Open" and "Are we under budget"
+        if self.in_bhe_hours() and self.in_budget(): # Currently no PAUSED option, like in event of 
+            # small blip but not catastrophe. Not implemented
+            print("Arthur is open and trading...")
+            # move the text to total ignition on arthur
+            return "OPEN"
+        else:
+            print("No more trading for today.") #Make reason for no trading dynamic logging
+            # move the text to total ignition on arthur
+            return "CLOSED"
+        
+        
+    def set_trader_team(self , team : list):
+        self.team = team
 
     def insiderange(self , start : float , end : float , val : float) -> bool:
         return (start <= val <= end)
@@ -290,7 +536,7 @@ class OandaTrading(Platform): # Specific Platform with slightly crossed wires
         #see trader for details on why blank
         return None
 
-    def make_order(self, mode , instrument : str , side : int, lot_size : int):
+    def make_order(self, mode , instrument : str , side : int, lot_size : int , reduce_only : bool = False):
 
         url = self.make_url(mode,"order",0)
         
@@ -307,7 +553,7 @@ class OandaTrading(Platform): # Specific Platform with slightly crossed wires
                         "instrument": instrument,
                         "timeInForce": "FOK",
                         "type": "MARKET",
-                        "positionFill": "DEFAULT"
+                        "positionFill": "REDUCE_ONLY" if reduce_only else "DEFAULT"
                     }
                 }
 

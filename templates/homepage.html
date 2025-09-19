@@ -52,13 +52,26 @@
           <option value="M15">M10</option>
         </select>
 
+        <!-- Number of Managers, MVP = 1-->
+        <label for="managers"># Managers:</label>
+        <select name="Managers" id="Managers" required>
+          <option value="1" selected>1</option>
+        </select>
+
         <!-- Number of traders on this single pair -->
-        <label for="traders"># Traders on this pair:</label>
+        <label for="traders"># Traders on each team:</label>
         <select name="traders" id="traders" required>
           <option value="1" selected>1</option>
           <option value="2">2</option>
           <option value="3">3</option>
           <option value="4">4</option>
+        </select>
+
+        <!-- Mode-->
+        <label for="mode">Mode:</label>
+        <select name="mode" id="mode" required>
+          <option value="Demo" selected>Demo</option>
+          <option value="Live">Live</option>
         </select>
 
         <button type="submit">Run</button>

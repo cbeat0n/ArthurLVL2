@@ -23,6 +23,10 @@ THETA_DEG = 5 # Degrees of theta angle
 EPSILON_MU = 0.1 # Return of mu
 
 def decisionrule(row):
+    #intake is intake, horizon is the aggregate of intake.
+    # entire signal is the horizon, and zone is the 
+    # aggregate of the horizon. Make decision on horizon first then on 
+    # zone. ie intake S30 horizon gran m1 zone m5 and horizon is H
     
     # Theta, Mu model dependent on regime structure in T,M space
 
