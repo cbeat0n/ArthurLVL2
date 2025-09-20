@@ -23,15 +23,15 @@ from threading import Event
 import time
 
 # Internal Dependencies
-from utils.extract_quantitative import fetch_candles
-from utils.transform_cleaned import convert_to_tabular , clean_tabular
-from utils.load_cleaned import get_today_folder , load_cleaned_data
-from utils.transform_signal import acquire_proto_signal , decisionrule , transform_to_signal
-from utils.load_signal import load_signal_matrix
+from utils.generic import fetch_candles
+from utils.generic import convert_to_tabular , clean_tabular
+from utils.generic import get_today_folder , load_cleaned_data
+from utils.generic import acquire_proto_signal , decisionrule , transform_to_signal
+from utils.generic import load_signal_matrix
 
-from utils.extract_auto import extract_signal_matrix , extract_final_matrix
-from utils.transform_auto import finalize_records
-from utils.load_auto import load_final_data
+from utils.generic import extract_signal_matrix , extract_final_matrix
+from utils.generic import finalize_records
+from utils.generic import load_final_data
 
 
 class ArthurConfig():
@@ -47,11 +47,12 @@ class ArthurConfig():
         self.stop_event = Event()  # allows graceful shutdown of all threads
 
 class Arthur():
-    def __init__(self , cfg : ArthurConfig,  managers : list , base_dir : str):
+    def __init__(self , cfg : ArthurConfig,  managers : list , teamsize: int, base_dir : str):
         self.config = cfg
         self.managers = managers # Threading on trades MVP later Multiprocessing
         # Managers all share same instrument per instance of Arthur.
         # Managers might have different strategies. MVP is one Manager.
+        # make sure to take the teamsize and initialize using control flow the managers teams.
         self.base_dir = base_dir
     
     def set_registry(self , registry : dict):
@@ -161,7 +162,7 @@ class Arthur():
 
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.registry["platformKey"]}",
+            "Authorization": f"Bearer {self.platform.authorization}",
             "Accept-Datetime-Format" : "RFC3339"
         }
         

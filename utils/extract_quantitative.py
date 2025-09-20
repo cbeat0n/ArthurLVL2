@@ -14,7 +14,7 @@ import json # Keeping for JSON convertability, might go tabular / columnar
 import requests # Library for HTTP GET et al requests
 
 # Internal Dependencies
-from utils.operators import DataVendor , Platform
+from utils.generic import DataVendor , Platform
 
 # Load environment variables from the .env file
 load_dotenv()

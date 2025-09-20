@@ -1,0 +1,66 @@
+## temporary top description for generic.py
+# generic.py holds generic OOP so that there are no circular imports and imports
+# depend on generic and are separate from each other.
+
+"""
+Zero-logic, zero-project-imports.
+Common ports (interfaces) + light shared types used across modules.
+Keep this file tiny to avoid circular imports.
+"""
+
+import pandas as pd
+
+
+from typing import Protocol, Optional, Any, Iterable, Dict
+
+
+
+
+# 13 func from ETL.
+# 7 OOP
+
+
+def fetch_candles():
+    ...
+def convert_to_tabular():
+    ...
+def clean_tabular():
+    ...
+def get_today_folder():
+    ...
+def load_cleaned_data():
+    ...
+def acquire_proto_signal():
+    ...
+def decisionrule():
+    ...
+def transform_to_signal():
+    ...
+def load_signal_matrix():
+    ...
+def extract_signal_matrix():
+    ...
+def extract_final_matrix():
+    ...
+def finalize_records():
+    ...
+def load_final_data():
+    ...
+
+class ArthurConfig():
+    ...
+
+class Arthur():
+    ...
+
+class DataVendor():
+    ...
+
+class Trader():
+    ...
+
+class RiskManager():
+    ...
+
+class Platform():
+    ...

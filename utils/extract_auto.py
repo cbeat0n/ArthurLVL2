@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime , timezone
 import numpy as np
 import os
-from utils.operators import Trader
+from utils.generic import Trader
 
 # Extract the signal matrix into ETL-Auto.
 # Parquet later instead of .csv for efficiency but Bryan needs to understand why.

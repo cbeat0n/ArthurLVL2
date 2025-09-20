@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 import requests
 from datetime import datetime , timezone
-from utils.operators import Trader , RiskManager
+from utils.generic import Trader , RiskManager
 from utils.transform_signal import REGIME
 from verificationlearning.historicaldataverification import pip_size
 
