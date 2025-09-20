@@ -20,9 +20,13 @@ from utils.operators import DataVendor , Platform , OandaTrading ,ArthurConfig, 
 from utils.operators import RiskManager , Trader
 
 
-# Initialize Flask App and needed parameters.
+# Initialize Flask App and hardcoded parameters.
 ArthurFlask = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+VENDOR = ...
+PLATFORM = ...
+REGISTRY = ...
+
 
 # REMAKE GET/POST FOR AUTO TRADING LATER OR ADD /trade ROUTES FOR AUTO TRADING, DEFER
 # Home Route
@@ -34,21 +38,54 @@ def home():
 @ArthurFlask.route("/accounting", methods = ["GET"])
 def enter_vault():
     # homepage opens accounting. accounting starts up the Arthur instance.
-    # accounting trades and sends information to viz market. Done.
+    #  accounting trades and sends information to viz market. Done.
 
-    #
+    # pair , intake , horizon ,  managers , traders , mode
 
-    return render_template("vault_storage.html")
+    instrument = ... # these params use request.args and take from homepage
+    intake = ...
+    horizon = ...
+    managers = ...
+    teamsize = ...
+    mode = ...
 
-@ArthurFlask.route("/visualize/<instrument>", methods=["GET"])
-def visualize_market(instrument):
-    # render template needs signal , instrument , and refresh rate.
-    
+    config = ArthurConfig(mode = mode , vendor = VENDOR , platform = PLATFORM  , instrument = instrument,
+                 intake = intake, horizon  = horizon)
+    ArthurInstance = Arthur(cfg = config , managers = managers ,teamsize=teamsize, base_dir= BASE_DIR)
+    ArthurInstance.set_registry(REGISTRY)
+
+
+    # logic that sets up accounting page params , runs the trades , and sets up params for market _ view.
+    account_summary = ArthurInstance._accounting()
+    ignition_center = ArthurInstance._ignition_A()
+    signal_matrix , signal_filename = ArthurInstance._acquire_market()
+    if ignition_center == "OPEN":
+        ArthurInstance._market_cycle(marketfile=signal_filename)
+    else:
+        print("Trading out of bounds for current business operations.")
+        print("Check operational integrity for reasoning.")
+
+
+    return render_template("vault_storage.html", 
+                           accountSummary = account_summary,
+                           signalMatrix = signal_matrix.to_dict("records"),
+                           instrument = instrument,
+                           refreshrate = intake)
+
+@ArthurFlask.route("/visualize/", methods=["GET"])
+def visualize_market():
+    # visualize_market and .route need to be fed instrument parameter
+    # but do this and build query params using communication with microwebframework.
+    ui_signal_matrix = ... # the 3 ui params are being pulled from the 
+    # accounting page and simply rerouted at an appropriate sub intake refresh rate
+    # accounting feeds visualize market and that's the realtime dashboard
+    ui_instrument = ...
+    ui_intake = ...
 
     return render_template("market_view.html",
-                           signalMatrix=signal_dict,
-                           instrument=instrument,
-                           granularity=intake)
+                           signalMatrix=ui_signal_matrix,
+                           instrument=ui_instrument,
+                           granularity=ui_intake)
     
 if __name__ == "__main__":
     ArthurFlask.run(debug=True)
