@@ -1,60 +1,66 @@
-### transform_cleaned.py is an an agnostic framework that serves to intake
-### data (quantitative and/or qualitative) and turn it into a tabular form. 
-### This data is not signal data, but it is convertable. In this module, anything
-### resembling soup will be feature extracted and then missing, duplicates via 
-### timestamps , and possibly outliers will be handled accordingly.
+### transform_cleaned.py is a modular and agnostic framework that performs
+### proprietary ETL as a part of ETL-Base for Arthur.
 
-# Dependencies
-import pandas as pd # For tabular conversion
-from datetime import datetime # For timestamp conversions
+## External Dependencies
+import pandas as pd # Library for data manipulation
+from datetime import datetime # Library for time objects
 
-# Currently system nominal will need to be updated for more robust DE,SE,Cloud, Cybersecurity, AI/ML needs.
-# 08212025 1429 CST
+def convert_to_tabular(candlebody : dict):
+    """
+    convert_to_tabular takes the JSON from fetch_candles and converts it to tabular form.
+    It returns a JSON.
 
-
-def convert_to_tabular(candle_json):
+    Inputs:
+    candlebody: list - the list of dictionaries incoming from fetch_candles
+    """
     
-    middleman = []
-    for c in candle_json:
+    candles = candlebody["candles"]
+    tabular = []
+
+    for candle in candles:  
         row = {
-            "timestamp": str(c["time"]),
-            "open": float(c["mid"]["o"]),
-            "high": float(c["mid"]["h"]),
-            "low": float(c["mid"]["l"]),
-            "close": float(c["mid"]["c"]),
-            "volume": float(c["volume"])
+            "timestamp": str(candle["time"]),
+            "open": float(candle["mid"]["o"]),
+            "high": float(candle["mid"]["h"]),
+            "low": float(candle["mid"]["l"]),
+            "close": float(candle["mid"]["c"]),
+            "volume": int(candle["volume"])
         }
-        middleman.append(row)
-    return middleman
-
-def clean_tabular(middleman ,  horizon : str):
+        tabular.append(row)
     
-    cleaned_df = pd.DataFrame(middleman)
+    return tabular
+
+def clean_tabular(tabular : list ,  horizon : str):
+    """
+    clean_tabular takes the tabular JSON from convert_to_tabular and uses the horizon sample frequency
+    to make a Pandas Dataframe that has candle information at horizon frequency, proprietarily constructed.
+    
+    Inputs:
+    tabular : list - tabular JSON from convert_to_tabular
+    horizon : str - horizon sampling frequency for decision rules over zone , to be defined later
+    """
+    
+    cleaned_df = pd.DataFrame(tabular)
 
     cleaned_df["timestamp"] = pd.to_datetime(cleaned_df["timestamp"] , utc = True , errors = 'coerce')
     cleaned_df = cleaned_df.sort_values('timestamp').set_index('timestamp')
 
-    # Maps are made for OANDA, might need to be changed to be completely modular and agnostic.
+    ## Maps are made for OANDA.
+    horizon_rule = {"M1" : "1T", "M2" : "2T", "M4" : "4T", "M5" : "5T", "M10" : "10T"}[horizon]
 
-    horizon_rule = {
-        "M1" : "1T",
-        "M2" : "2T",
-        "M4" : "4T",
-        "M5" : "5T",
-        "M10" : "10T"
-    }[horizon]
-
+    ## Aggregation smooths out each pricing definition by its accorded aggregation
     agg = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
 
+    ## Resamples the cleaned dataframe to horizon sample frequency / decision frequency.
+    ## Uses right label and closed values, aggregation function on line 41.
     horizon_df = (
         cleaned_df.resample(horizon_rule, label='right', closed='right').agg(agg)
-          .dropna(how = 'any').reset_index()
-    )
+          .dropna(how = 'any').reset_index())
     
-    # No missing or duplicates per 8/6/25 QA — note kept for audit
+    ## Timestamp uses Zulu sub seconds. Useful post MVP.
     safe_timestamp = pd.to_datetime(horizon_df["timestamp"].iloc[-1]).strftime("%Y-%m-%dT%H-%M-%S")
     
-    return horizon_df, safe_timestamp
+    return {"cleaned" : horizon_df, "safe_ts" : safe_timestamp}
 
 
 

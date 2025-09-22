@@ -5,6 +5,7 @@
 ### between the Parties.
 
 # External Dependencies
+from dotenv import load_dotenv # Env hides API Key
 from flask import Flask, render_template, request
 import pandas as pd
 import time
@@ -19,6 +20,8 @@ from utils.load_signal import load_signal_matrix
 from utils.operators import DataVendor , Platform , OandaTrading ,ArthurConfig, Arthur
 from utils.operators import RiskManager , Trader
 
+# Load environment variables from the .env file
+load_dotenv()
 
 # Initialize Flask App and hardcoded parameters.
 ArthurFlask = Flask(__name__)

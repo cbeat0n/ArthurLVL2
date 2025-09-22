@@ -9,12 +9,7 @@ Keep this file tiny to avoid circular imports.
 """
 
 import pandas as pd
-
-
 from typing import Protocol, Optional, Any, Iterable, Dict
-
-
-
 
 # 13 func from ETL.
 # 7 OOP

@@ -1,58 +1,41 @@
-### quantitative_extract.py is an agnostic framework that serves to acquire 
-### the input stream of financial information used for fastBot. There is no 
-### one set technology that is used, and the principles of API input are 
-### kept detached so as to allow the development cycle to be flexible.
-
-# Beginning of this file will use functions for LVL2 pruning onward
-# for cybersecurity concerns regarding API Keys and for stronger DevOps.
+### quantitative_extract.py is a modular and agnostic framework that
+### communicates server side with data vendors using DataVendor interface and returns 
+### candlebody information which is sent to transform_cleaned.py
 
 
-# Dependencies
-from dotenv import load_dotenv # Env hides API Key
-import os # Works alongside dotenv for getenv function
-import json # Keeping for JSON convertability, might go tabular / columnar
-import requests # Library for HTTP GET et al requests
+## External Dependencies
+import requests # Library for HTTP requests
 
-# Internal Dependencies
-from utils.generic import DataVendor , Platform
-
-# Load environment variables from the .env file
-load_dotenv()
-
-# Retrieve OANDA API Key from .env file
-oanda_demo_api_key = os.getenv("OANDADEMOAPIKEY")
-
-## FOR LIVE TRADING:
-## oanda_api_key = os.getenv("OANDAAPIKEY")
-
+## Internal Dependencies
+from utils.generic import DataVendor , Platform # Non circular import for generic placeholders
 
 
 def fetch_candles(mode : str , vendor : DataVendor , platform : Platform , instrument="USD_JPY", intake="S5", count=3600, price="M", timezone="UTC"):
-    
-    # Technically ETL-Base runs off vendors. However OANDA does not separate these
-    # two services so modularly agnostic code will intake a vendor and a platform.
+    """
+    fetch_candles fetches the candles for the horizon at intake.
+    It returns either a JSON with the candlebody or the ValueError.
 
-    ### IMPORTANT!! THIS IS BUILT TO RUN ON OANDA BECAUSE THAT IS WHAT IS BEING USED.
-    ### COMPLETE MODULAR AGNOSTIC CODE WOULD USE A VENDOR. 
-    ### 09182025 1140 CST LOOKING INTO FINAGE ETC AND SEP PLATFORMS
-
+    Inputs:
+    mode : str - mode of trading
+    vendor : DataVendor - Vendor for use -- Currently OANDA is both as an inherited Platform
+    platform : Platform - Platform for trading -- Currently being used, will be DataVendor later
+    instrument : str - financial instrument being traded
+    intake : str - intake sample frequency
+    count : int - number of samples that defines the horizon, intake * count is integer divisible by
+    horizon, defined elsewhere
+    price : str - midpoint or bid / ask prices, usually midpoint for forecasting
+    timezone : str - timezone of calculations done, different from timezone used in account information pulls.
+    """
 
     url = platform.make_url(mode , "instrument" , 0)
 
-    headers = {
-        "Authorization": f"Bearer {oanda_demo_api_key}"
-    }
+    headers = {"Authorization": f"Bearer {platform.authorization}"}
 
-    params = {
-        "granularity": intake,
-        "count": count,
-        "price": price,
-        "alignmentTimezone": timezone
-    }
+    params = {"granularity" : intake,"count" : count,"price" : price,"alignmentTimezone" : timezone}
 
-    response = requests.get(url, headers=headers, params=params)
+    response = requests.get(url, headers=headers, params=params) # HTTP Request from url , headers , params
 
-    if response.status_code == 200:
-        return response.json().get("candles", []) , instrument , intake
+    if response.status_code == 200: # Error handling
+        return {"candles" : response.json().get("candles" , []) , "instrument" : instrument , "intake" : intake}
     else:
         raise ValueError(f"Error {response.status_code}: {response.text}")
