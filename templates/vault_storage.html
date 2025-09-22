@@ -1,0 +1,54 @@
+<!-- vault_storage.html is an agnostic framework show an account wide summary
+ for the process of Arthur, including a summary of the accounting at hand
+ and the instance of Arthur being ran at present moment. -->
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Arthur | Vault Storage</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script> 
+  <!-- Static version, watch this parameter-->
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Vault Storage</h1>
+      <div class="muted">Instrument: <strong>{{ instrument|default('—') }}</strong> • Horizon: <strong>{{ refreshRate|default('—') }}</strong></div>
+    </div>
+    <div class="row">
+      <a class="btn" href="/visualize/?{{ signalFile|default('') }}&instrument={{ instrument|default('') }}&horizon={{ refreshRate|default('') }}">Open Market View</a>
+    </div>
+  </header>
+  <main>
+    <!-- Account Summary -->
+    <section class="card">
+      <h2>Account Summary</h2>
+      <div class="grid">
+        {% if accountSummary %}
+          {% for k, v in accountSummary.items() %}
+            <div class="card">
+              <div class="muted">{{ k }}</div>
+              <div style="font-size:18px; font-weight:600;">{{ v }}</div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="muted">No account summary available.</div>
+        {% endif %}
+      </div>
+    </section>
+  </main>
+  <script>
+    // Auto-refresh based on refreshRate seconds (if numeric)
+    (function () {
+      var rr = "{{ refreshRate|default('') }}";
+      var sec = parseInt(rr, 10);
+      if (!isNaN(sec) && sec > 0) {
+        setInterval(function(){ location.reload(); }, sec * 1000);
+      }
+    })();
+
+  </script>
+</body>
+</html>

@@ -28,7 +28,7 @@ PLATFORM = ...
 REGISTRY = ...
 
 
-# REMAKE GET/POST FOR AUTO TRADING LATER OR ADD /trade ROUTES FOR AUTO TRADING, DEFER
+
 # Home Route
 @ArthurFlask.route("/", methods=["GET"])
 def home():
@@ -66,24 +66,21 @@ def enter_vault():
 
     return render_template("vault_storage.html", 
                            accountSummary = account_summary,
-                           signalMatrix = signal_matrix.to_dict("records"),
+                           signalFile = signal_filename,
                            instrument = instrument,
-                           refreshrate = horizon)
+                           refreshRate = horizon)
 
 @ArthurFlask.route("/visualize/", methods=["GET"])
 def visualize_market():
-    # visualize_market and .route need to be fed instrument parameter
-    # but do this and build query params using communication with microwebframework.
-    ui_signal_matrix = ... # the 3 ui params are being pulled from the 
-    # accounting page and simply rerouted at an appropriate sub intake refresh rate
-    # accounting feeds visualize market and that's the realtime dashboard
-    ui_instrument = ...
-    ui_intake = ...
+    filepath = request.get.args("signalFile")
+    ui_signal_matrix = pd.read_csv(filepath).to_dict("records")
+    ui_instrument = request.get.args("instrument")
+    ui_horizon = request.get.args("horizon")
 
     return render_template("market_view.html",
                            signalMatrix=ui_signal_matrix,
                            instrument=ui_instrument,
-                           granularity=ui_intake)
+                           refreshRate=ui_horizon)
     
 if __name__ == "__main__":
     ArthurFlask.run(debug=True)

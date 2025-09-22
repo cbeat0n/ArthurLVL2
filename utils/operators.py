@@ -158,7 +158,7 @@ class Arthur():
         traders = [t for m in self.managers for t in m.team]
 
         summaries = []
-        account_summary = [{}]
+        account_summary = {}
 
         headers = {
             "Content-Type": "application/json",
@@ -176,16 +176,16 @@ class Arthur():
             else:
                 raise ValueError(f"Error {response.status_code}: {response.text}")
             
-        account_summary[0]["NAV"] = sum([float(summary["NAV"]) for summary in summaries])
-        account_summary[0]["balance"] = sum([float(summary["balance"]) for summary in summaries])
-        account_summary[0]["openPositionCount"] = sum([float(summary["openPositionCount"]) for summary in summaries])
-        account_summary[0]["openTradeCount"] = sum([float(summary["openTradeCount"]) for summary in summaries])
-        account_summary[0]["pendingOrderCount"] = sum([float(summary["pendingOrderCount"]) for summary in summaries])
-        account_summary[0]["pl"] = sum([float(summary["pl"]) for summary in summaries])
-        account_summary[0]["RMs"] = len(self.managers)
-        account_summary[0]["minTraders"] = min([len(m.team) for m in self.managers])
-        account_summary[0]["maxTraders"] = max([len(m.team) for m in self.managers])
-        account_summary[0]["numTraders"] = len(traders)
+        account_summary["NAV"] = sum([float(summary["NAV"]) for summary in summaries])
+        account_summary["balance"] = sum([float(summary["balance"]) for summary in summaries])
+        account_summary["openPositionCount"] = sum([float(summary["openPositionCount"]) for summary in summaries])
+        account_summary["openTradeCount"] = sum([float(summary["openTradeCount"]) for summary in summaries])
+        account_summary["pendingOrderCount"] = sum([float(summary["pendingOrderCount"]) for summary in summaries])
+        account_summary["pl"] = sum([float(summary["pl"]) for summary in summaries])
+        account_summary["RMs"] = len(self.managers)
+        account_summary["minTraders"] = min([len(m.team) for m in self.managers])
+        account_summary["maxTraders"] = max([len(m.team) for m in self.managers])
+        account_summary["numTraders"] = len(traders)
 
         return account_summary
 
