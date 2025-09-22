@@ -40,8 +40,6 @@ def enter_vault():
     # homepage opens accounting. accounting starts up the Arthur instance.
     #  accounting trades and sends information to viz market. Done.
 
-    # pair , intake , horizon ,  managers , traders , mode
-
     instrument = ... # these params use request.args and take from homepage
     intake = ...
     horizon = ...
@@ -70,7 +68,7 @@ def enter_vault():
                            accountSummary = account_summary,
                            signalMatrix = signal_matrix.to_dict("records"),
                            instrument = instrument,
-                           refreshrate = intake)
+                           refreshrate = horizon)
 
 @ArthurFlask.route("/visualize/", methods=["GET"])
 def visualize_market():

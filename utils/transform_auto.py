@@ -157,7 +157,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         L = sum(1 for t in today_c_trades if float(t["realizedPL"]) < 0)
         p_roll = G / (G+L) if (G+L) else 0.0
         Gs = [float(t["realizedPL"]) if float(t["realizedPL"]) > 0 else 0.0 for t in today_c_trades]
-        Ls = [float(t["realizedPL"]) if float(t["realizedPL"]) < 0 else 0.0 for t in today_c_trades]
+        Ls = [abs(float(t["realizedPL"])) if float(t["realizedPL"]) < 0 else 0.0 for t in today_c_trades]
         G_roll = np.median(Gs) if any(Gs) else 0.0
         L_roll = np.median(Ls) if any(Ls) else 0.0
         num_buy = sum(1 for t in today_c_trades if float(t["initialUnits"]) > 0)
