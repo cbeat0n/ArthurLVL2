@@ -34,7 +34,8 @@ def clean_tabular(tabular : list ,  horizon : str):
     """
     clean_tabular takes the tabular JSON from convert_to_tabular and uses the horizon sample frequency
     to make a Pandas Dataframe that has candle information at horizon frequency, proprietarily constructed.
-    
+    It returns a JSON.
+
     Inputs:
     tabular : list - tabular JSON from convert_to_tabular
     horizon : str - horizon sampling frequency for decision rules over zone , to be defined later

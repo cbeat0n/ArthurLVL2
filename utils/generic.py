@@ -5,6 +5,8 @@
 import pandas as pd # Library for data manipulation
 from typing import Protocol, Optional, Any, Iterable, Dict ## Library for generic Objects
 
+## Generic methods and classes are left blank for iterability and to prevent circular imports.
+
 def fetch_candles():
     ...
 def convert_to_tabular():

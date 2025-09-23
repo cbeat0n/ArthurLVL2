@@ -1,17 +1,14 @@
-### operators.py is a modular and agnostic structure outside of the proprietary
-### ETL-Base and ETL-Auto that allows for construction and simulation of
-### 4 main operators, the data vendor, the trader(s), the risk manager, and the 
-### trading platform. Arthur simulates the interactions between these either in historical
-### or is the communicative body of work that allows for trading to take place.
-### Arthur decides the how and why: "Let's go bet on horses, here's the structure."
-
+### operators.py is a modular and agnostic framework that creates proprietary OOP
+### in order to orchestrate hedge fund management systems. It interlocks
+### all parts of the process with either hardcoded, dynamic (inner or UI pulled),
+### or deferred parameters (args and/or kwargs).
 
 
 ## External Dependencies
 from __future__ import annotations
 import requests
-from datetime import date , datetime
-from zoneinfo import ZoneInfo  # Python 3.9+
+from datetime import datetime , time
+from zoneinfo import ZoneInfo 
 import os
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -31,147 +28,260 @@ from utils.generic import load_final_data
 
 
 class ArthurConfig():
-    def __init__(self , mode : str , vendor : DataVendor , platform : Platform , instrument : str,
-                 intake : str , horizon : str):
+    """
+    ArthurConfig is a class that holds configuration information on the class Arthur being ran.
+    
+    Functions:
+    __init__ : initialization function
+    """
+
+    def __init__(self , base_dir : str , mode : str , vendor : DataVendor , platform : Platform ,registry: dict,  instrument : str,
+                 intake : str , horizon : str , zone : str , threadpool : ThreadPoolExecutor , event : Event) -> None:
+        """
+        __init__ initializes ArthurConfig.
+        It returns nothing.
+
+        Inputs:
+        self : self
+        base_dir : str - base directory of storage
+        mode : str - Mode of Instance
+        vendor : DataVendor - Vendor being used for information
+        platform : Platform - Platform being used to trade
+        registry : dict - Vendor and Platform keys, stored on .env outside repository
+        instrument : str -  Instrument being traded
+        intake : str - Frequency of raw data stream
+        horizon : str - Frequency of decision sample
+        zone : str - Frequency of horizon samples used to make decision space UxV
+        threadpool : ThreadPoolExecutor - Threading Pool for concurrent trading
+        event : Event - Event used to flag stop and start events
+        """
+
+        self.base_dir = base_dir 
         self.mode = mode
         self.vendor = vendor
         self.platform = platform
-        self.registry = None
+        self.registry = registry
         self.instrument = instrument
         self.intake = intake
         self.horizon = horizon
-        self.stop_event = Event()  # allows graceful shutdown of all threads
+        self.zone = zone
+        self.threadpool = threadpool 
+        self.stop_event = event
+
+        ## Requests Session for only one SSCS communication, lowering latency.
+        self.session = requests.Session()
+        self.session.headers.update({
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {registry['platform']}",
+            "Accept-Datetime-Format": "RFC3339"
+        })
 
 class Arthur():
-    def __init__(self , cfg : ArthurConfig,  managers : list , teamsize: int, base_dir : str):
-        self.config = cfg
-        self.managers = managers # Threading on trades MVP later Multiprocessing
-        # Managers all share same instrument per instance of Arthur.
-        # Managers might have different strategies. MVP is one Manager.
-        # make sure to take the teamsize and initialize using control flow the managers teams.
-        self.base_dir = base_dir
-    
-    def set_registry(self , registry : dict):
-        # registry is {vendorKey : key1 , platformKey : key2}
-        self.config.registry = registry
+    """
+    Arthur is a class that orchestrates the instance simulation.
 
+    Functions:
+    __init__ : initialization function
+    _ignition_A: ignition function
+    trader_cycle : one OODA loop for a trader
+    market_cycle : one OODA loop for Arthur
+    _acquire_market : ETL-Base
+    _accounting : accounting dashboard summarizer function
+    """
+    
+    def __init__(self , cfg : ArthurConfig,  teamstructure : dict) -> None:
+        """
+        __init__ initializes Arthur.
+        It returns nothing.
+
+        Inputs:
+        self : self
+        cfg : ArthurConfig - the configuration of Arthur
+        teamstructure : dict - the structure of managers and teams, currently uniform
+        """
+        
+        self.config = cfg
+        
+        num_managers = teamstructure["managers"] # Num managers, say 2
+        num_traders = teamstructure["traders"] # Num traders, say 8
+        
+        self.managers = [RiskManager(f"RM{i}" ,self ,  self.config) for i in range(num_managers)]
+        
+        k = num_traders // num_managers
+
+        self.traders = []
+
+        for i, manager in enumerate(self.managers):
+            
+            team = []
+            
+            for j in range(k):
+                trader_idx = i * k + j
+                trader = Trader(
+                    f"T{trader_idx}",
+                    manager , 
+                    manager.config)
+
+                team.append(trader)
+                
+                self.traders.append(trader)
+           
+            manager.set_trader_team(team)
 
     def _ignition_A(self):
+        """
+        _ignition_A is the total ignition on the Arthur Instance. It combines the managers'
+        ignitions into one total "Open or Closed for Business" check.
+        It returns a string.
+
+        Inputs:
+        self : self
+        """
+        
         states = [m.ignition() for m in self.managers]
         return "OPEN" if all(s == "OPEN" for s in states) else "CLOSED"
     
-    def trader_cycle(self , marketfile : str , manager : RiskManager , trader : Trader , kw : dict):
-        """One trader’s cycle (one pass). Call in a loop if you want continuous intake."""
-        # 1) Read latest signal matrix (shared file, but re-read per intake cycle is fine)
-        market = extract_signal_matrix(marketfile)  # pd.DataFrame
+    def trader_cycle(self , marketfile : str , manager : RiskManager , trader : Trader , kwargs : dict):
+        """
+        trader_cycle is an OODA loop with logging that is done per trader at horizon and is the basis
+        of the trading engine for Arthur.
+        It returns a JSON holding the decision, namely the action and status key value pairs.
 
-        # 2) Trader decides (and may place orders)
-        trader.decision_loop(manager, market)
+        Input:
+        self : self 
+        marketfile : str - the file holding the signal
+        manager : RiskManager - the manager for the trader
+        trader : Trader - the trader in question
+        kwargs : dict - keyword arguments for the context of the OODA loop
+        """
 
-        # 3) Finalize & persist telemetry
-        logs = extract_final_matrix(self.base_dir, trader)
+        market = extract_signal_matrix(marketfile)["signal"]  # signal DataFrame
+
+        decision = trader.decision_loop(manager, market) # {"action" : action , "status" : status}
+
+        ## Every horizon: observe , measure , decide , act , then record. (OODA with logging)
+        logs = extract_final_matrix(self.base_dir, trader) # A Trader records his results every cycle
         if logs["exists"]:
-            final_matrix = finalize_records(market, trader, record=logs["df"], **kw)
+            final_matrix = finalize_records(market, trader, record=logs["final"], **kwargs)
         else:
-            final_matrix = finalize_records(market, trader, **kw)
+            final_matrix = finalize_records(market, trader, **kwargs)
 
-        load_final_data(final_matrix, logs["file"])
-        return trader.name
+        load_final_data(final_matrix, logs["file"]) # CRUD for final records
+        
+        return decision # log JSON of action and status of action
     
     def _acquire_market(self):
-        ## ETL-Base : ETLTL
-        # Make internal names same as ETL-Base
-        # Step 1: Extract raw candle data
-        candles, instrument, intake = fetch_candles(instrument=self.config.instrument, intake = self.config.intake)
+        """
+        _acquire_market performs ETL-Base.
+        It returns a JSON.
 
-        # Step 2: Convert and clean
-        tabular_data = convert_to_tabular(candles)
-        cleaned_data, safe_timestamp = clean_tabular(tabular_data , horizon = self.config.horizon)
+        Input:
+        self : self 
+        """
 
-        # Step 3: Load Cleaned Data
-        data_folder = get_today_folder(os.path.join(self.base_dir, "data"))
-        filename = load_cleaned_data(data_folder, cleaned_data, instrument, safe_timestamp)
+        ## ETL-Base
 
+        ## E1
+        ## {"candles" : candles , "instrument" : instrument, "intake" : intake}
+        candlebody = fetch_candles(self.config.instrument, self.config.intake)
 
-        # Step 4: Generate Signal Matrix
-        proto_signal = acquire_proto_signal(filename)
-        signal_matrix = transform_to_signal(proto_signal)
+        ## T1
+        ## Tabular list and then {"cleaned" : cleaned , "safe_ts" : safe_ts}
+        tabular_data = convert_to_tabular(candlebody["candles"])
+        cleaned_tabular = clean_tabular(tabular_data , self.config.horizon)
 
-        # Step 5: Load Signal Matrix
-        signal_filename = load_signal_matrix(data_folder , signal_matrix, instrument, safe_timestamp)
+        ## L1
+        ## filename for the cleaned data
+        filename = load_cleaned_data(self.config.base_dir, cleaned_tabular["cleaned"], 
+                    candlebody["instrument"], cleaned_tabular["safe_ts"])["file"]
+
+        ## T2
+        ## signal DataFrame
+        signal_matrix = transform_to_signal(filename)["signal"]
+
+        ## L2
+        ## filename for the signal data
+        signal_filename = load_signal_matrix(self.config.base_dir , signal_matrix, 
+                candlebody["instrument"], cleaned_tabular["safe_ts"])["file"]
         
+        ## JS processing
+        signal_dict = signal_matrix.to_dict(orient="records")
 
-        signal_dict = signal_matrix[["timestamp" , "value",
-                        "B","S","theta","mu","ActionHat"]].to_dict(orient="records")
-
-        return signal_dict , signal_filename # Is a list of dictionaries , JS needs JSON
+        return {"dict" : signal_dict , "location" : signal_filename} 
     
 
     def _market_cycle(self , marketfile : str):
-        # market cycle 
-        # on intake granularity, run arthur into rms into each trader and have them make 
-        # their decision of B S H.
+        """
+        _market_cycle is the singular process by which Arthur Instances run. Every horizon,
+        the OODA loop for the entire instance is ran. Threading / Multiprocessing is used
+        for concurrency and hardware optimization.
+        It returns a JSON.
 
-        # kwargs must be instantiated. Context matters, these work on OANDA.
-        kw = {
-        "t_o_e" : "order",
-        "t_o_s" : 0,
-        "t_t_e" : "trade",
-        "t_t_s" : 0,
-        "pricing" : "pricing",
-        "pricing_sub" : 1,
-        "acc_e" : "account",
-        "acc_s" : 1,
-        "transaction_e" : "transaction",
-        "transaction_s" : 0
-    }
+        Inputs:
+        self : self 
+        marketfile : str - the file location of the signal
+        """
+        
+        ## kwargs for context
+        kwargs = {
+        "t_o_e" : "order", "t_o_s" : 0,
+        "t_t_e" : "trade", "t_t_s" : 0,
+        "pricing" : "pricing", "pricing_sub" : 1,
+        "acc_e" : "account", "acc_s" : 1,
+        "transaction_e" : "transaction", "transaction_s" : 0}
     
 
-        # Flatten all traders across all managers
-        trader_pairs = [(m, t) for m in self.managers for t in m.team]
-        if not trader_pairs:
-            return
+        ## Flatten the managers and teams into trader manager pairs
+        trader_pairs = [(m, t) for m in self.managers for t in m.team]    
+
+        market_cycles = []
 
         start = time.time()
-        # Size pool to number of traders (cap if needed)
-        with ThreadPoolExecutor(max_workers=len(trader_pairs)) as pool:
+       
+        with self.threadpool as pool: # Threading set up outside of cycle to only setup once, for concurrency
             futures = [
-                pool.submit(self.trader_cycle,marketfile, m, t, kw)
+                pool.submit(self.trader_cycle,marketfile, m, t, kwargs)
                 for (m, t) in trader_pairs
             ]
-            for f in as_completed(futures):
-                name = f.result()  # will raise if worker threw
-                #print(f"[cycle] {name} done")
-                # Timing takes up space. Contextual.
+            
+            cycletime = time.time() - start
 
-        #print(f"[cycle] duration: {time.time() - start:.3f}s")
-        # Timing takes up space. Contextual.
+            for f in as_completed(futures): # As completed, append cycles
+                market_cycles.append({"decision": f.result() , "cycletime" : cycletime})
+        
+
+        return {"cycles" : market_cycles} # market_cycles is a list of dictionaries of the decisions and timelogs.
+        # It is currently inactive, but is there when needed.
+
 
     def _accounting(self):
-        # go through account/summary and aggregate for account wide.
-        # also give number of rm, traders per team , total traders that day.
+        """
+        _accounting performs routine aggregate accounting for minimal information needed for guardian
+        of Arthur.
+        It returns a JSON.
 
+        Inputs:
+        self : self
+        """
+
+        ## Start with each trader, aggregate by account per trader
         traders = [t for m in self.managers for t in m.team]
 
         summaries = []
         account_summary = {}
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.platform.authorization}",
-            "Accept-Datetime-Format" : "RFC3339"
-        }
         
-        for trader in traders:
+        for trader in traders: # HTTP request construction
             summary_url = trader.platform.make_url(trader.mode , "account" , 2)
 
-            response = requests.get(url = summary_url, headers = headers)
+            response = self.config.session.get(url = summary_url)
 
             if response.status_code == 200:
                 summaries.append(response.json()["account"])
             else:
                 raise ValueError(f"Error {response.status_code}: {response.text}")
             
+        ## Comprehension style ETL for account summary aggregation
         account_summary["NAV"] = sum([float(summary["NAV"]) for summary in summaries])
         account_summary["balance"] = sum([float(summary["balance"]) for summary in summaries])
         account_summary["openPositionCount"] = sum([float(summary["openPositionCount"]) for summary in summaries])
@@ -183,35 +293,88 @@ class Arthur():
         account_summary["maxTraders"] = max([len(m.team) for m in self.managers])
         account_summary["numTraders"] = len(traders)
 
-        return account_summary
+        return {"summary" : account_summary} # Account summary JSON
 
 
-# Data Vendor (vendor, bank, other digital ClientServer streams)
-class DataVendor: # Generic Data Vendor containing {x_j} None collection of all 
-    def __init__(self): # possible base and endpoints. Specific Data Vendors use subcollection.
+class DataVendor:
+    """
+    DataVendor is a class that holds market information.
+
+    Functions:
+    __init__ : initialization function
+    """
+    
+    def __init__(self):
+        """
+        __init__ initializes a DataVendor that is blank. There are base routes and endpoints on each API,
+        as well as an authorization key.
+
+        Inputs:
+        self : self
+        """ 
+        self.authorization = None
         self.base = None
         self.endpoints = None
-# Trader(s) that decides what and when (timing) based on instrument and regime from vendor
-# trade function make it static with dynamic lot size
+
+
+
 class Trader:
-    def __init__(self ,name : str, mode : str , instrument : str , platform : Platform , intake : str , horizon : str):
-        self.name = name
-        self.mode = mode
-        self.instrument = instrument
-        self.intakeGranularity = intake # RM puts this in
-        self.horizonGranularity = horizon # RM puts this in
-        self.platform = platform
-        self.accountID = None # move accountID focus from platform to trader, 
-        # one platform multiple traders and then the traders call the platform with their 
-        # id.
+    """
+    Trader is a class that trades and is controlled by the RiskManager class.
+
+    Functions:
+    __init__ - initialization function
+    set_trader_account - setter for accountID
+    close_trade - closes a trade
+    cancel_order - cancels an order
+    make_order - makes an order, currently oriented for long only
+    decision_loop - decides and trades at horizon using signal
+    """
+    
+    def __init__(self , name : str , manager : RiskManager , cfg : ArthurConfig):
+        """
+        __init__ initializes the Trader that makes the trades. A Trader takes parameters and is controlled
+        by the RiskManager.
+
+        Inputs:
+        self : self
+        manager : RiskManager - the manager of the trader
+        cfg : ArthurConfig - the configuration of the Arthur Instance
+        """
+        
+        self.name = name # Label for trader
+        self.manager = manager # Gatekeeper for risk management
+        self.config = cfg # Parameters inherited from Arthur
+        self.accountID = None # accountID for the platform
 
     def set_trader_account(self , accountID : str):
+        """
+        set_trader_account sets the accountID for the trader. MVP uses 1 manager and minimal traders,
+        which can be kept at one, so only volume is applied. This means that MVP
+        can be hardcoded for a single accountID.
+        It returns nothing.
+
+        Inputs:
+        self : self 
+        accountID : str - the accountID to be used by the trader
+        """
+
+        ## This needs to be hardcoded in Arthur.py
         self.accountID = accountID
         
     def close_trade(self ,  trade_id):
-        # close_trade function partially inherited based on platform
+        """
+        close_trade closes a trade on the platform according to the trade_id , currently
+        built for OANDA.
+        It returns a JSON.
 
-        closure = self.platform.close_trade(self.mode , trade_id)
+        Inputs:
+        self : self 
+        trade_id : str - the trading id for the trade in question.
+        """
+        
+        ## Function partially inherited by the trading platform
+        closure = self.config.platform.close_trade(self.config.mode , trade_id)
 
         if closure.get("orderFillTransaction"):
             return {"status" : "filled" , "raw" : closure , 
@@ -222,19 +385,32 @@ class Trader:
         
 
     def cancel_order(self , order_id):
-        # cancel_order function partially inherited based on platform
+        """
+        This function is held here as a chassis for post MVP development when
+        partial orders are utilized. 
 
-        # FOK with market / lot size means no rolling orders to cancel... yet.
-        # leverage and high liquidity could mean rolling orders to cancel
-        # for now dynamic make order that allows for "this got cancelled"
+        It is left incomplete.
+        """
 
-        return self.platform.cancel_order(self.mode , order_id)
+        ## Cancel order function inherited partially by platform.
+        return self.config.platform.cancel_order(self.config.mode , order_id)
 
 
-    def make_order(self , side , lot_size : float , reduce_only : bool):
-        # make_order function partially inherited based on platform
+    def make_order(self , side : int , lot_size : float , reduce_only : bool):
+        """
+        make_order makes an order on long only conditions, and is followed by a close_trade action.
+        FOK is used for rudimentary financial strategy.
+        It returns a JSON.
 
-        order = self.platform.make_order(self.mode , self.instrument , side , lot_size , reduce_only)
+        Input:
+        self : self
+        side : int - the buy or sell side
+        lot_size : float - the size of the lot in notional currency
+        reduce_only : bool - whether or not to reduce. side only gives long or short, reduce allows to 'sell long'
+        """
+        
+        ## Make order function partially inherited by platform.
+        order = self.config.platform.make_order(self.config.mode , self.config.instrument , side , lot_size , reduce_only)
 
         if order.get("orderFillTransaction") :
             return {"status": "filled" , "raw" : order , 
@@ -246,188 +422,278 @@ class Trader:
         
         
     def decision_loop(self , manager : RiskManager , market : pd.DataFrame):
+        """
+        decision_loop makes a single trade according to the decision call inside the signal matrix.
+        It returns a JSON.
+
+        Inputs:
+        self : self
+        manager : RiskManager - the manager of the trader
+        market : pd.DataFrame - the signal of the market at current horizon
+        """
+        
         latest = market.iloc[-1]
         
         decisioncall = latest["ActionHat"] # 0 B 1 S 2 H
 
         action = ["BUY","SELL","HOLD"][decisioncall]
 
-        #MVP is make orders and trade them. Sell immediately. Crude but will work.
+        ## MVP is make orders and trade them. Sell immediately. Crude but will work.
 
         if action == "HOLD":
-            # Hold for now.
+            ## Hold for now.
             return {"action" : action , "status" : "no operational change"}
             
         elif action == "SELL":
-            #Sell everything and minimize exposure , keep EOD empty or small.
-            # RM not gating sell lotsize right now
-            # if currentAmount 0:
-            # return something
-            # elif currentAmount > 0:
+            ## Sell large majority on dump, accounts for asymmetric buying signals
+            ## and works on stationary reverted to mean liquid FX pair like USDJPY.
 
-            accountdetailsurl = self.platform.make_url(self.mode , "account",1)
-            accountdetails = requests.get(url = accountdetailsurl)
-            #make robust later
+            
+            accountdetailsurl = self.config.platform.make_url(self.config.mode , "account",1)
+            accountdetails = self.config.session.get(url = accountdetailsurl)
+            
             account = accountdetails.json()["account"]
+            
             positions = account["positions"]
-            fxidx = [p["instrument"] for p in positions].index(self.instrument)
+            fxidx = [p["instrument"] for p in positions].index(self.config.instrument)
+            
             pointedposition = positions[fxidx]
+            
             currentLong = float(pointedposition["long"]["units"])
 
-            if currentLong > 0:
-                static_lotsize = 1005
-
-                (minsize , maxsize , bestsize) = manager.gate_lotsize()
-                
-                if manager.insiderange(minsize , maxsize, static_lotsize):
-                    lot_size = static_lotsize
-                else: # outside range for dynamic
-                    lot_size = bestsize
-
-
-                # Extra Long not terrible at small size, 1e-6 for smoothness
-                if currentLong + 1e-6 < lot_size:
-                    return {"action" : action , "status" : "stock less than static budget, wait"}
+            if currentLong > 1000: # Crank minimum, hold onto very small min position
+                lot_size = (0.925 * currentLong) / len([t for m in manager.arthur.managers for t in m.team]) 
+                # Traders get equal volume, threading means arithmetic not geometric
 
                 order = self.make_order(side = -1 , lot_size= lot_size , reduce_only = True)
 
+                ## FOK , CON -- fill or kill, closed or not
                 if order["status"] == "filled":
-                    return order
+                    return {"action" : action , "status" : self.close_trade(order["trade_id"])}
+                else:
+                    return {"action" : action , "status" : order}
+                
             else:
                 return {"action" : action , "status" : "no stock, wait for BUY"}
             
         else: # action == "BUY"
-            # Make a single order.
+            
+            ## Make a single order.
             static_lotsize = 1005
 
             (minsize , maxsize , bestsize) = manager.gate_lotsize()
 
+            ## Static params, dynamic risk management.
             if manager.insiderange(minsize , maxsize, static_lotsize):
                 lot_size = static_lotsize
-            else: # outside range for dynamic
+            else: 
                 lot_size = bestsize
 
             order = self.make_order(side = 1 , lot_size= lot_size , reduce_only = False)
+ 
+            ## FOK, CON - fill or kill, closed or not
+            if order["status"] == "filled":
+                    return {"action" : action , "status" : self.close_trade(order["trade_id"])}
+            else:
+                    return {"action" : action , "status" : order}
 
-            if order["status"] == "filled": 
-                return order
 
-# Risk Manager that decides who and when (ignition) and where (vendor and platform).
-# rm caps values like pnl and how much notional and how much leverage but 
-# the value itself is decided by dynamic information based on the regime. 
-# trader makes only data driven decisions
-# regime provides the information. if bearish low leverage and one medium for example.
+
 class RiskManager:
-    def __init__(self , name : str , vendor : DataVendor , platform : Platform):
-        self.name = name
-        self.team = None
-        self.vendor = vendor
-        self.platform = platform
+    def __init__(self , name : str , arthur : Arthur , cfg : ArthurConfig):
+        """
+        __init__ initializes a RiskManager. RiskManagers are controlled by Arthur.
+        It returns nothing.
 
+        Inputs:
+        self : self
+        name : str - name of RiskManager
+        arthur : Arthur - Arthur Instance
+        cfg : ArthurConfig - Arthur Configuration
+        """
+        
+        self.name = name # Name for logging
+        self.arthur = arthur # RMs report to Arthur
+        self.config = cfg # Config given from Arthur
+        self.team = None # Team iterated during Arthur construction
+    
     def in_budget(self): 
-                # Roughly 15 trades/day per trader budget
-                # M1-M10 rough horizon gives 30-40 daily trades, to be found.
-                # Only upswings on buy and sell only means roughly half of that.
-                # Set max trades daily per trader below.
-                MAX_TRADES_PER_TRADER = 15
-                STATIC_LOTSIZE = 1000
+        """
+        in_budget calculates whether or not the team under management is under budget.
+        It returns a bool.
+
+        Inputs:
+        self : self      
+        """
+              
+        max_trades = 15
+        static_lotsize = 1000
                 
-                # Query closed trades today (for whole account/team)
-                running_trades = 0
-                for trader in self.team:
-                    running_trades += trader.platform.count_trades(trader.mode , trader.instrument)
+        ## Query closed trades today (for whole account/team)
+        running_trades = 0
+        for trader in self.team:
+            running_trades += trader.config.platform.count_trades(trader.config.mode , trader.config.instrument)
 
-                spent_today = running_trades*STATIC_LOTSIZE
-                
-                # Budget scales with team size
-                budget = MAX_TRADES_PER_TRADER * len(self.team)*STATIC_LOTSIZE
-                
-                return spent_today < budget # trades today < total trades on the team daily
-                # spent today can be made dynamic
+        spent_today = running_trades*static_lotsize
+        
+        ## Budget scales with team size
+        budget = max_trades * len(self.team)*static_lotsize
+        
+        return spent_today < budget # static lotsize reduces to trades today < maxnumtrades
 
-    def in_bhe_hours(self,now_local: datetime | None = None) -> bool:
-        """True iff Mon–Fri, 06:55–15:00 (America/Chicago)."""
+    def in_bhe_hours(self) -> bool:
+        """
+        in_bhe_hours gives True iff Mon–Fri, 06:55–15:00 (America/Chicago).
+        It returns a bool.
+        
+        Inputs:
+        self : self
+        """
 
-        CHI = ZoneInfo("America/Chicago")
-        START = time(6, 55)   # 06:55 AM CST/CDT
-        END   = time(15, 0)   # 03:00 PM CST/CDT
+        chi = ZoneInfo("America/Chicago")
+        start = time(6, 55)   # 06:55 AM CST/CDT
+        end   = time(15, 0)   # 03:00 PM CST/CDT
 
-        if now_local is None:
-            now_local = datetime.now(CHI)
-        # weekend: Saturday=5, Sunday=6
+        now_local = datetime.now(chi)
+        
+        ## Weekend: Saturday=5, Sunday=6
+        
         if now_local.weekday() >= 5:
             return False
+        
         t = now_local.time()
-        return START <= t < END
+        
+        return start <= t < end
         
 
     def ignition(self):
-        #MVP involves a static ignition which comes down to
-        # "Is Black Hole Enterprises Open" and "Are we under budget"
-        if self.in_bhe_hours() and self.in_budget(): # Currently no PAUSED option, like in event of 
-            # small blip but not catastrophe. Not implemented
-            print("Arthur is open and trading...")
-            # move the text to total ignition on arthur
+        """
+        ignition gives the status on whether or not BHE is in business hours and in budget.
+        It returns a string.
+
+        Inputs:
+        self: self
+        """
+        
+        if self.in_bhe_hours() and self.in_budget():
             return "OPEN"
-        else:
-            print("No more trading for today.") #Make reason for no trading dynamic logging
-            # move the text to total ignition on arthur
+        else: 
             return "CLOSED"
         
         
     def set_trader_team(self , team : list):
+        """
+        set_trader_team sets the team for the RiskManager.
+        It returns nothing.
+
+        Inputs:
+        self : self 
+        team : list - the list of traders for the manager
+        """
+        
         self.team = team
 
     def insiderange(self , start : float , end : float , val : float) -> bool:
+        """
+        insiderange takes a real number interval and gives the truth value of if the value
+        in question is inside that range inclusively.
+        It returns a bool.
+
+        Inputs:
+        self : self
+        start : float - start value
+        end : float - end value
+        val : float - value in question
+        """
+        
         return (start <= val <= end)
 
     
     def gate_lotsize(self):
-        #Currently very static but becomes dynamic. 
+        """
+        gate_lotsize gates the lotsize of the buy side decisions statically.
+        It returns a tuple.
+
+        Inputs:
+        self : self
+        """
+        
+        ## Currently very static but becomes dynamic. 
         lotsizemin = 1000 
         lotsizemax = 2000
-        lotsizebest = 1000 # gate functions give a range and a best value
-        # and the best is not always a min or a max but is always within range
+        lotsizebest = 1000 
+        
 
         return (lotsizemin , lotsizemax , lotsizebest)
-    
-    
-    # RM has the key on all trading on "when business open" and
-    # gates parameters. More gates coming. Gates minimize risk
-    # whatever that looks like but traders are the dynamic ones. 
-    # RM are controllers.
 
-# Trading Platform
-class Platform: # Generic Platform containing {x_j} None collection of all 
-    def __init__(self): # possible base and endpoints. Specific Platforms use subcollection.
+
+
+class Platform:
+    """
+    Platform is a class that interfaces with trading platforms. It is left blank.
+
+    Functions:
+    __init__
+    """
+    
+    def __init__(self):
+        """
+        __init__ initializes the class Platform.
+        It returns nothing.
+
+        Inputs:
+        self : self
+        """
+        
         self.authorization = None
         self.base = None
         self.endpoints = None
 
     def make_url(self , mode : str, endpoint: str , subEndpoint: int, **kw):
-        # make_url generically uses a base, endpoint, and subEndpoint. 
-        # Specifically, the context is the parameters used for the subEndpoint
-        # and headers and params are added afterwards.
-        # make_url lets all of the url be a string non formatted.
+        """
+        make_url takes inputs on a Platform and makes a url for HTTP requests.
+        It returns a string.
+
+        Inputs:
+        self : self
+        mode : str - the mode of the Instance
+        endpoint : str - the endpoint on the API
+        subEndpoint : int - the number in the list of the subendpoints for proprietary OOP Interface
+        kw : dict - key value pairs for optional arguments
+        """
 
         context = {}
 
         context.update(**kw)
-
-        # Platform make_url() uses actionType and does nothing with it because Platform doesn't exist.
-        # Each subPlatform will 
+ 
         return self.base[mode] + self.endpoints[endpoint][subEndpoint].format(**context)
 
-# Oanda Trading Platform (different from Oanda as Data Vendor)
-# Currently OandaTrading is going to do both data and trading until I 
-# distance the two and 'tie shoelaces' with Arthur, making Arthur modular
-# with the global system. Might as well use Oanda for now, maybe interchange later.
-class OandaTrading(Platform): # Specific Platform with slightly crossed wires
-    def __init__(self, api_key : str): # and as normal as dynamic as possible with static info elsewhere.
-        self.authorization = api_key
+
+class OandaTrading(Platform): 
+    """
+    OandaTrading(Platform) is a class that inherits from Platform. It is the class that interfaces with 
+    Oanda's REST API. For MVP it is both the vendor and the platform. For modularity and other reasons, Oanda
+    is to be siloed and not used. It would be simpler and easier to understand if two separate interfaces
+    were used. Then a vendor could be called, and a platform could be called. Cost will be negligible.
+
+    Functions:
+    __init__ : initialization function
+    set_accountID : setter for accountID
+    set_instrument : setter for instrument
+    set_orderSpecifier : setter for orderSpecifier
+    set_tradeSpecifier : setter for tradeSpecifier
+    make_url : url HTTP constructor
+    close_trade : function that closes trades
+    cancel_order : function that cancels orders
+    make_order : function that makes orders
+    count_trades : function that counts todays closed buy trades for RiskManager budget function
+    """
+    
+    def __init__(self, api_key : str , cfg : ArthurConfig):
+        self.authorization = api_key # Authorization
         self.accountID = None # Point to Nothing , Set to Anything
         self.instrument = None # Point to Nothing, Set to Anything
-        
+        self.config = cfg
         self.orderSpecifier = None # No particular order per account , Set to Anything
         self.tradeSpecifier = None # No particular order per account , Set to Anything
 
@@ -484,16 +750,64 @@ class OandaTrading(Platform): # Specific Platform with slightly crossed wires
             "pricing": Pricing
         }
 
+    def set_accountID(self , accountID : str):
+        """
+        set_accountID is a setter function for the accountID parameter.
+        It returns nothing.
 
-    ## Setters
-    def set_accountID(self , accountID : str): self.accountID = accountID
-    def set_instrument(self, instrument : str): self.instrument = instrument
-    def set_orderSpecifier(self , orderSpecifier: str): self.orderSpecifier = orderSpecifier
-    def set_tradeSpecifier(self , tradeSpecifier: str): self.tradeSpecifier = tradeSpecifier
+        Inputs:
+        self : self
+        """ 
+        
+        self.accountID = accountID
+    
+    def set_instrument(self, instrument : str): 
+        """
+        set_instrument is a setter function for the instrument parameter.
+        It returns nothing.
 
+        Inputs:
+        self : self
+        """
+
+        self.instrument = instrument
+    
+    def set_orderSpecifier(self , orderSpecifier: str):
+        """
+        set_orderSpecifier is a setter function for the orderSpecifier parameter.
+        It returns nothing.
+
+        Inputs:
+        self : self
+        """
+
+        self.orderSpecifier = orderSpecifier
+    
+    def set_tradeSpecifier(self , tradeSpecifier: str): 
+        """
+        set_tradeSpecifier is a setter function for the tradeSpecifier parameter.
+        It returns nothing.
+
+        Inputs:
+        self : self
+        """
+
+        self.tradeSpecifier = tradeSpecifier
 
     def make_url(self , mode : str, endpoint: str , subEndpoint: int , **kw):
-        
+        """
+        make_url for OandaTrading is the inherited version of make_url.
+        It returns a string.
+
+        Inputs:
+        self : self
+        mode : str - the mode of the Instance
+        endpoint : str - the endpoint on the API
+        subEndpoint : int - the number in the list of the subendpoints for proprietary OOP Interface
+        kw : dict - key value pairs for optional arguments
+        """
+
+
         context = {
             "accountID" : self.accountID,
             "instrument": self.instrument,
@@ -501,86 +815,97 @@ class OandaTrading(Platform): # Specific Platform with slightly crossed wires
             "tradeSpecifier" : self.tradeSpecifier
         }
 
-        context.update(kw) # Updates context so that platform can stay unchanged and 
-        # one can point to a different context rather than changing everything.
+        context.update(kw) # kw arguments update context
 
         return self.base[mode] + self.endpoints[endpoint][subEndpoint].format(**context)
     
-    def close_trade(self , mode , trade_id):
+    def close_trade(self , mode : str , trade_id : str):
+        """
+        close_trade closes a trade on OANDA.
+        It returns a JSON.
+
+        Inputs:
+        self : self 
+        mode : str - mode of Arthur being ran
+        trade_id : str - trade id for OANDA REST API
+        """
 
         url = self.make_url(mode , "trade" , 3, tradeSpecifier = trade_id)
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.authorization}",
-            "Accept-Datetime-Format" : "RFC3339"
-        }
-         
-        
         body = {
-                "units" : "ALL" # Make it simple and close everything when possible.
-                # Make more dynamic LATER
+                "units" : "ALL" # Close a trade immediately, small lots -> easy trade closures
         }
     
-        response = requests.put(url, headers = headers , json = body)
+        response = self.config.session.put(url, json = body)
         
         if response.status_code == 200:
-            return response.json() # finish or adapt, currently full body and can access all info
+            return response.json() 
         else:
             raise ValueError(f"Error {response.status_code}: {response.text}")
 
-    def cancel_order(self , mode , order_id):
-        #see trader for details on why blank
+    def cancel_order(self , mode : str , order_id : str):
+        """
+        cancel_order cancels an order on the OANDA REST API. It is blank because MVP does not cancel orders.
+        It is left incomplete.
+        """
+        
         return None
 
-    def make_order(self, mode , instrument : str , side : int, lot_size : int , reduce_only : bool = False):
+    def make_order(self, mode : str, instrument : str , side : int, lot_size : int , reduce_only : bool = False):
+        """
+        make_order makes an order on the OANDA REST API.
+        It returns a JSON.
 
+        Inputs:
+        self : self
+        mode : str - mode for Arthur instance running
+        instrument : str - the instrument being traded
+        side : int - the trade side
+        lot_size : int - the amount of the lot in notional currency
+        reduce_only : bool - whether or not to reduce the units. Used for long only trades, where side sell is
+        then True, and reduce the long, as opposed to the sell only then starts a short
+        """
+        
         url = self.make_url(mode,"order",0)
-        
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.authorization}",
-            "Accept-Datetime-Format" : "RFC3339"
-        }
-        
         
         body = {
                     "order": {
                         "units": str(side*lot_size),
                         "instrument": instrument,
-                        "timeInForce": "FOK",
+                        "timeInForce": "FOK", # MVP uses FOK because it is simpler
                         "type": "MARKET",
                         "positionFill": "REDUCE_ONLY" if reduce_only else "DEFAULT"
                     }
                 }
 
-        response = requests.post(url, headers = headers , json = body)
+        response = self.config.session.post(url, json = body)
         
         if response.status_code == 201:
-            return response.json() # finish or adapt, currently full body and can access all info
+            return response.json() 
         else:
             raise ValueError(f"Error {response.status_code}: {response.text}")
         
+    def count_trades(self , mode: str, instrument : str):
+        """
+        count_trades counts the trades that are closed buys for today via the OANDA REST API.
+        It returns an integer.
 
-
-    def count_trades(self , mode , instrument : str):
+        Inputs:
+        self : self
+        mode : str - the mode of Arthur being ran
+        instrument : the instrument being traded  
+        """
         
         url = self.make_url(mode , "trade", 0)
-
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.authorization}",
-            "Accept-Datetime-Format" : "RFC3339"
-        }
 
         params = {
             "state" : "CLOSED",
             "instrument" : instrument,
             "count" : 500 # Maximum allowed, filter manually by time, other platform might 
-            # allow more but... what individual 'simulated trader' needs N > 500?
+            # allow more.
         }
 
-        request_body = requests.get(url = url , headers = headers , params = params)
+        request_body = self.config.session.get(url = url , params = params)
 
         if request_body.status_code == 200:
             last_count_trades = request_body.json()["trades"]
@@ -592,21 +917,22 @@ class OandaTrading(Platform): # Specific Platform with slightly crossed wires
         midnight_chi = datetime(year = now_chi.year , month = now_chi.month , day = now_chi.day , tzinfo = ZoneInfo("America/Chicago"))
 
         def to_chi(rfc3339_utc: str) -> datetime:
-            # handle nanoseconds: split off 'Z', then split fractional seconds
+            ## Handle nanoseconds: split off 'Z', then split fractional seconds
             base = rfc3339_utc.rstrip("Z")
             if "." in base:
                 base = base.split(".")[0]
             dt_utc = datetime.fromisoformat(base).replace(tzinfo=ZoneInfo("UTC"))
             return dt_utc.astimezone(chi)
 
-        # local filter: today, optionally by instrument
+        ## Local filter: today
         count = 0
         for t in last_count_trades:
             ct = t.get("closeTime")
             if not ct:
                 continue
             ct_chi = to_chi(ct)
-            if midnight_chi <= ct_chi <= now_chi:
+            if midnight_chi <= ct_chi <= now_chi and float(t["currentUnits"]) > 0: # Only buy, because count the 
+                # money spent via buys. Can be changed.
                 count += 1
 
         return count

@@ -23,9 +23,8 @@ GS_REG = 1 # gsreg in {0,0.15,0.25,0.55,0.75,1} , other values not tested
 MREG = -1 # mreg in {-1,1} , other values not tested
 IREG = 1 # ireg in {-1,1} , other values not tested & mreg ireg not both -1
 ECO_ROLL = 20 # ecoroll not tested yet
-SMALL_LAG = 2 # small lag in {2,3,4,5} , other values not tested
-LARGE_LAG = 4 # large lag in {3,4,5,6,7,8} , other values not tested
-SLOPE_LAG = 2 # slope lag in {2,3,4,5,6,7,8} , other values not tested
+SMALL_LAG = 2 # small lag in {3,4,5,6,7,8,9,10,11,12,13,14,15} , other values not tested , s < l only
+LARGE_LAG = 4 # large lag in {3,4,5,6,7,8,9,10,11,12,13,14,15} , other values not tested
 
 ## Observed Values of Theta and Mu as phenomena
 ## U and V are not going to be perfectly sortable as unsupervised cluster space.
@@ -37,8 +36,7 @@ SLOPE_LAG = 2 # slope lag in {2,3,4,5,6,7,8} , other values not tested
 ## Regime is the market structure over time.
 REGIME = {"ewmhalflife" : HALFLIFE, "zwindow" : Z_WINDOW, "rsi_p" : RSI_PERIOD, "beta" : BETA_SMOOTHER,
            "e_beta" : EPS_BETA, "beta_b" : BETA_B, "beta_s" : BETA_S, "gs" :  GS_REG, 
-           "mreg" : MREG, "ireg" : IREG, "L_s" : SMALL_LAG, "L_l" : LARGE_LAG, 
-           "L_slope" : SLOPE_LAG}
+           "mreg" : MREG, "ireg" : IREG, "L_s" : SMALL_LAG, "L_l" : LARGE_LAG}
 
 
 ## HYPERPARAMETERS
@@ -215,8 +213,8 @@ def transform_to_signal(filename: str):
     ## Theta Calculations
 
     ## Use simple unit time step to avoid time-scale domination
-    proto_signal["dBdt"] = proto_signal["B"].diff(SLOPE_LAG) / SLOPE_LAG
-    proto_signal["dSdt"] = proto_signal["S"].diff(SLOPE_LAG) / SLOPE_LAG
+    proto_signal["dBdt"] = proto_signal["B"].diff(LARGE_LAG) / LARGE_LAG
+    proto_signal["dSdt"] = proto_signal["S"].diff(LARGE_LAG) / LARGE_LAG
 
 
     ## Two 2D vectors that encode direction of change over the last few steps

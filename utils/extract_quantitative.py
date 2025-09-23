@@ -29,11 +29,10 @@ def fetch_candles(mode : str , vendor : DataVendor , platform : Platform , instr
 
     url = platform.make_url(mode , "instrument" , 0)
 
-    headers = {"Authorization": f"Bearer {platform.authorization}"}
 
     params = {"granularity" : intake,"count" : count,"price" : price,"alignmentTimezone" : timezone}
 
-    response = requests.get(url, headers=headers, params=params) # HTTP Request from url , headers , params
+    response = platform.config.session.get(url, params=params) # HTTP Request from url , headers , params
 
     if response.status_code == 200: # Error handling
         return {"candles" : response.json().get("candles" , []) , "instrument" : instrument , "intake" : intake}

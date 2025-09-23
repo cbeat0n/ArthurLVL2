@@ -67,11 +67,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         today_trades = trader.platform.make_url(trader.mode , used_endpoints["t_t_e"] , used_endpoints["t_t_s"] , accountID = trader.platform.accountID)
 
         ## Find the orders that are filled
-        today_f_orders = requests.get(url = today_orders , headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {trader.platform.authorization}",
-            "Accept-Datetime-Format" : "RFC3339"
-        } , params = {"state" : "FILLED" , "count" : 200})
+        today_f_orders = trader.config.session.get(url = today_orders , params = {"state" : "FILLED" , "count" : 200})
 
         if today_f_orders.status_code == 200:
             today_f_orders = today_f_orders.json()["orders"]
@@ -79,11 +75,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
             raise ValueError(f"Error {today_f_orders.status_code}: {today_f_orders.text}")
 
         ## Find the trades that are closed
-        today_c_trades = requests.get(url = today_trades , headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {trader.platform.authorization}",
-            "Accept-Datetime-Format" : "RFC3339"
-        }   ,  params = {"state" : "CLOSED" , "count" : 200})
+        today_c_trades = trader.config.session.get(url = today_trades ,  params = {"state" : "CLOSED" , "count" : 200})
 
         if today_c_trades.status_code == 200:
             today_c_trades = today_c_trades.json()["trades"]
@@ -94,12 +86,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         ## Find pricing information on the instrument from vendor , currently platform because OANDA.
         pricing_url = trader.platform.make_url(trader.mode, used_endpoints["pricing"] , used_endpoints["pricing_sub"] , accountID = trader.platform.accountID)
 
-        pricing = requests.get(url = pricing_url , headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {trader.platform.authorization}",
-            "Accept-Datetime-Format" : "RFC3339"
-        } , params = {"instruments" : trader.instrument})
-
+        pricing = trader.config.session.get(url = pricing_url, params = {"instruments" : trader.instrument})
 
         if pricing.status_code == 200:
             pricing = pricing.json()["prices"]
@@ -109,30 +96,18 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         ## Find account information on the trader in question.
         account_url = trader.platform.make_url(trader.mode , used_endpoints["acc_e"] , used_endpoints["acc_s"] , accountID = trader.platform.accountID)
 
-        account = requests.get(url = account_url , headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {trader.platform.authorization}",
-            "Accept-Datetime-Format" : "RFC3339"
-        })
+        account = trader.config.session.get(url = account_url)
 
         if account.status_code == 200:
             account = account.json()["account"]
         else:
             raise ValueError(f"Error {account.status_code}: {account.text}")
 
-        lotsize_roll = np.median([abs(int(t["units"]))
-                        for t in today_f_orders if t["instrument"] ==  trader.instrument
-                        and t["createTime"][0:10] == signal["timestamp"][0][0:10]]) if any(today_f_orders) else 0.0 # closed only
-        
-        
+
         ## Find transactions today for codes for ETL
         transaction_url = trader.platform.make_url(trader.mode , used_endpoints["transaction_e"] , used_endpoints["transaction_s"] , accountID = trader.platform.accountID)
 
-        transaction_body = requests.get(url = transaction_url , headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {trader.platform.authorization}",
-            "Accept-Datetime-Format" : "RFC3339"
-        } , params = {"from" : midnight_utc_today.strftime("%Y-%m-%dT%H:%M:%SZ") , "to" : datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        transaction_body = trader.config.session.get(url = transaction_url , params = {"from" : midnight_utc_today.strftime("%Y-%m-%dT%H:%M:%SZ") , "to" : datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                       , "type" : "ORDER_FILL"})
 
         if transaction_body.status_code == 200:
@@ -140,11 +115,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         else:
             raise ValueError(f"Error {transaction_body.status_code}: {transaction_body.text}")
         
-        range_transactions = requests.get(url = pages_url , headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {trader.platform.authorization}",
-            "Accept-Datetime-Format" : "RFC3339"
-        })
+        range_transactions = trader.config.session.get(url = pages_url)
 
         if range_transactions.status_code == 200:
             order_fills = range_transactions.json()["transactions"]
@@ -153,6 +124,11 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
 
 
         ## Intermediary calculations
+        lotsize_roll = np.median([abs(int(t["units"]))
+                for t in today_f_orders if t["instrument"] ==  trader.instrument
+                and t["createTime"][0:10] == signal["timestamp"][0][0:10]]) if any(today_f_orders) else 0.0 # closed only
+
+        
         liquidity = pricing[0]["asks"][0]["liquidity"]
         
         bid = float(pricing[0]["bids"][0]["price"])
@@ -242,7 +218,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
 
         firstrow = {column : None for column in COLS}
 
-        ## Current UTC
+         ## Current UTC
         now = datetime.now(timezone.utc)
 
         ## Midnight UTC today
@@ -253,11 +229,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         today_trades = trader.platform.make_url(trader.mode , used_endpoints["t_t_e"] , used_endpoints["t_t_s"] , accountID = trader.platform.accountID)
 
         ## Find the orders that are filled
-        today_f_orders = requests.get(url = today_orders , headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {trader.platform.authorization}",
-            "Accept-Datetime-Format" : "RFC3339"
-        } , params = {"state" : "FILLED" , "count" : 200})
+        today_f_orders = trader.config.session.get(url = today_orders , params = {"state" : "FILLED" , "count" : 200})
 
         if today_f_orders.status_code == 200:
             today_f_orders = today_f_orders.json()["orders"]
@@ -265,11 +237,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
             raise ValueError(f"Error {today_f_orders.status_code}: {today_f_orders.text}")
 
         ## Find the trades that are closed
-        today_c_trades = requests.get(url = today_trades , headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {trader.platform.authorization}",
-            "Accept-Datetime-Format" : "RFC3339"
-        }   ,  params = {"state" : "CLOSED" , "count" : 200})
+        today_c_trades = trader.config.session.get(url = today_trades ,  params = {"state" : "CLOSED" , "count" : 200})
 
         if today_c_trades.status_code == 200:
             today_c_trades = today_c_trades.json()["trades"]
@@ -280,12 +248,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         ## Find pricing information on the instrument from vendor , currently platform because OANDA.
         pricing_url = trader.platform.make_url(trader.mode, used_endpoints["pricing"] , used_endpoints["pricing_sub"] , accountID = trader.platform.accountID)
 
-        pricing = requests.get(url = pricing_url , headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {trader.platform.authorization}",
-            "Accept-Datetime-Format" : "RFC3339"
-        } , params = {"instruments" : trader.instrument})
-
+        pricing = trader.config.session.get(url = pricing_url, params = {"instruments" : trader.instrument})
 
         if pricing.status_code == 200:
             pricing = pricing.json()["prices"]
@@ -295,30 +258,18 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         ## Find account information on the trader in question.
         account_url = trader.platform.make_url(trader.mode , used_endpoints["acc_e"] , used_endpoints["acc_s"] , accountID = trader.platform.accountID)
 
-        account = requests.get(url = account_url , headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {trader.platform.authorization}",
-            "Accept-Datetime-Format" : "RFC3339"
-        })
+        account = trader.config.session.get(url = account_url)
 
         if account.status_code == 200:
             account = account.json()["account"]
         else:
             raise ValueError(f"Error {account.status_code}: {account.text}")
 
-        lotsize_roll = np.median([abs(int(t["units"]))
-                        for t in today_f_orders if t["instrument"] ==  trader.instrument
-                        and t["createTime"][0:10] == signal["timestamp"][0][0:10]]) if any(today_f_orders) else 0.0 # closed only
-        
-        
+
         ## Find transactions today for codes for ETL
         transaction_url = trader.platform.make_url(trader.mode , used_endpoints["transaction_e"] , used_endpoints["transaction_s"] , accountID = trader.platform.accountID)
 
-        transaction_body = requests.get(url = transaction_url , headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {trader.platform.authorization}",
-            "Accept-Datetime-Format" : "RFC3339"
-        } , params = {"from" : midnight_utc_today.strftime("%Y-%m-%dT%H:%M:%SZ") , "to" : datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        transaction_body = trader.config.session.get(url = transaction_url , params = {"from" : midnight_utc_today.strftime("%Y-%m-%dT%H:%M:%SZ") , "to" : datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                       , "type" : "ORDER_FILL"})
 
         if transaction_body.status_code == 200:
@@ -326,11 +277,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         else:
             raise ValueError(f"Error {transaction_body.status_code}: {transaction_body.text}")
         
-        range_transactions = requests.get(url = pages_url , headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {trader.platform.authorization}",
-            "Accept-Datetime-Format" : "RFC3339"
-        })
+        range_transactions = trader.config.session.get(url = pages_url)
 
         if range_transactions.status_code == 200:
             order_fills = range_transactions.json()["transactions"]
@@ -339,6 +286,11 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
 
 
         ## Intermediary calculations
+        lotsize_roll = np.median([abs(int(t["units"]))
+                for t in today_f_orders if t["instrument"] ==  trader.instrument
+                and t["createTime"][0:10] == signal["timestamp"][0][0:10]]) if any(today_f_orders) else 0.0 # closed only
+
+        
         liquidity = pricing[0]["asks"][0]["liquidity"]
         
         bid = float(pricing[0]["bids"][0]["price"])
@@ -386,7 +338,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         firstrow["Intensity"] = signal["Intensity"]
         firstrow["U"] = signal["theta"]
         firstrow["V"] = signal["mu"]
-        firstrow["UxV"] = "theta x mu" #hardcode it until MARLEN, then pull dynamically, no new surprise columns
+        firstrow["UxV"] = "theta x mu" #dynamically pull if more fluid else hardcode
         firstrow["ActionHat"] = signal["ActionHat"]
         firstrow["lotsize_roll"] = lotsize_roll
         firstrow["B_a"] = None #B_a with dynamic filling later, FOK

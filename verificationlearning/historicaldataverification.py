@@ -30,7 +30,10 @@ END_DATE = "2025-09-05"
 INSTRUMENT = "USD_JPY"
 INTAKE = "S30"
 HORIZON = "M1"
-ZONE = 8 # Given as integer for "MX".
+ZONE = ... # Given as string for "MX"., int multiple of HORIZON.
+## Large Lag for U and V is the max L for the state space.
+## Small Lag used for Mu, B and S smooth. NaNs that show up are for implementation, those are stitched by way of 
+##  Monday = last Friday, market is smooth, U and V are made smooth at time t via lag L.
 
 #Fake Budget System - Capital , Buy size notional , incremented long units.
 
