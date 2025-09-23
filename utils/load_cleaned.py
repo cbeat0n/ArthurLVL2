@@ -1,7 +1,7 @@
 ### load_cleaned.py is a modular and agnostic framework that performs proprietary 
 ### ETL as a part of ETL-Base for Arthur.
 
-# Internal Dependencies
+## Internal Dependencies
 import pandas as pd # Library for data manipulation
 import os # Library for operating system communication
 from datetime import datetime # Library for time objects

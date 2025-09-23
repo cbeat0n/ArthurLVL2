@@ -12,7 +12,7 @@ from utils.transform_signal import REGIME
 from verificationlearning.historicaldataverification import pip_size
 
 # modular and agnostic of any trade. scrapes rolling PnL et al info from platform.
-COLS = ["accountID","name" ,"riskmanager","ts", "d_int" , "d_hor" , "instrument" ,"regime" , "B", "S" ,"Margin", "U" , "V" , "UxV", 
+COLS = ["accountID","name" ,"riskmanager","ts", "d_int" , "d_hor" , "instrument" ,"regime" , "B", "S" ,"Margin","Intensity", "U" , "V" , "UxV", 
         "ActionHat", "lotsize_roll", "B_a" , "S_a" , "T_a" , "why_unfill" , "liquidity", "bid",
         "ask" , "spread" , "intended" , "fill_roll" , "slip_r_roll" , "slip_a_roll" , "slip_pips_roll" , "open", "high" , "low",
         "close" , "volume" , "open_orders" , "open_trades" , "p_roll" , "G_roll" , "L_roll",
@@ -182,6 +182,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         firstrow["B"] = signal["B"]
         firstrow["S"] = signal["S"]
         firstrow["Margin"] = signal["Margin"]
+        firstrow["Intensity"] = signal["Intensity"]
         firstrow["U"] = signal["theta"]
         firstrow["V"] = signal["mu"]
         firstrow["UxV"] = "theta x mu" #dynamically pull if more fluid else hardcode
