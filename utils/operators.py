@@ -5,13 +5,9 @@
 ### or is the communicative body of work that allows for trading to take place.
 ### Arthur decides the how and why: "Let's go bet on horses, here's the structure."
 
-## Although operators.py is for modularity and agnosticity, there is also
-## a cloud and cybersecurity element to it. Currently API Keys are static and
-## stored proprietarily but operators or some other system will hold them 
-## with more safety in mind.
 
 
-# Dependencies
+## External Dependencies
 from __future__ import annotations
 import requests
 from datetime import date , datetime
@@ -22,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Event
 import time
 
-# Internal Dependencies
+## Internal Dependencies
 from utils.generic import fetch_candles
 from utils.generic import convert_to_tabular , clean_tabular
 from utils.generic import get_today_folder , load_cleaned_data
@@ -489,7 +485,7 @@ class OandaTrading(Platform): # Specific Platform with slightly crossed wires
         }
 
 
-    # Setters
+    ## Setters
     def set_accountID(self , accountID : str): self.accountID = accountID
     def set_instrument(self, instrument : str): self.instrument = instrument
     def set_orderSpecifier(self , orderSpecifier: str): self.orderSpecifier = orderSpecifier

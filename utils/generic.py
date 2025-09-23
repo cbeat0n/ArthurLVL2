@@ -1,19 +1,9 @@
-## temporary top description for generic.py
-# generic.py holds generic OOP so that there are no circular imports and imports
-# depend on generic and are separate from each other.
+### generic.py is a modular and agnostic framework for blank slate information
+### that neutralizes circular imports by being a neutral parent module.
 
-"""
-Zero-logic, zero-project-imports.
-Common ports (interfaces) + light shared types used across modules.
-Keep this file tiny to avoid circular imports.
-"""
-
-import pandas as pd
-from typing import Protocol, Optional, Any, Iterable, Dict
-
-# 13 func from ETL.
-# 7 OOP
-
+## External Dependencies
+import pandas as pd # Library for data manipulation
+from typing import Protocol, Optional, Any, Iterable, Dict ## Library for generic Objects
 
 def fetch_candles():
     ...
