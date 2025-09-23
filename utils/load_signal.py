@@ -4,7 +4,7 @@
 ## Internal Dependencies
 import pandas as pd # Library for data manipulation
 import os # Library for operating system communication
-from datetime import datetime # Library for time objects 
+from datetime import datetime , timezone # Library for time objects 
 
 
 def load_signal_matrix(base_dir : str , signal_matrix : pd.DataFrame, instrument : str , safe_timestamp : str):
@@ -20,7 +20,7 @@ def load_signal_matrix(base_dir : str , signal_matrix : pd.DataFrame, instrument
     safe_timestamp : str - the most recent timestamp of the data
     """
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     end_dir = f"signal/{today}/signal_data_{instrument}_{safe_timestamp}.csv"
     full_path = os.path.join(base_dir,end_dir)
 

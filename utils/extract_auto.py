@@ -1,44 +1,63 @@
-### extract_auto.py is a modular and agnostic framework that extracts
-### the signal matrix from ETL-Base for ETL-Auto.
+### extract_auto.py is a modular and agnostic framework that performs
+### proprietary ETL in ETL-Auto for Arthur.
 
-# Dependencies
-import pandas as pd
-from pathlib import Path
-from datetime import datetime , timezone
-import numpy as np
-import os
-from utils.generic import Trader
+## External Dependencies
+import pandas as pd # Library for data manipulation
+from datetime import datetime , timezone # Library for time objects
+import numpy as np # Library for numerical calculations
+import os # Library for operating system communications
 
-# Extract the signal matrix into ETL-Auto.
-# Parquet later instead of .csv for efficiency but Bryan needs to understand why.
+## Internal Dependencies
+from utils.generic import Trader # Non circular import for generic placeholders
 
 
-def extract_signal_matrix(signal_file):
 
+def extract_signal_matrix(signal_file : str):
+    """
+    extract_signal_matrix extracts the signal matrix from its filepath.
+    It returns a JSON with the signal matrix.
+
+    Inputs:
+    signal_file : str - the file of the signal matrix
+    """
+    
     signal = pd.read_csv(signal_file)
 
-    return signal
+    return {"signal" : signal}
 
 
 def extract_final_matrix(base_dir , trader : Trader):
+    """
+    extract_final_matrix is a neither feed forward nor feed backward extraction function
+    that makes a JSON on the existence of the finalized matrix for a given trader , instrument , 
+    and day. At most one finalized record is expected daily.
+    It returns a JSON with information on the finalized matrix.
 
-    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    os.makedirs(Path(base_dir) / "final", exist_ok=True)
-    fpath =  Path(base_dir) /  "final" / f"finalized_data_{trader.name}_{trader.instrument}_{date_str}.csv"
+    Inputs:
+    base_dir : str - the base directory for the file
+    trader: Trader - the trader on the loop, one trader CRUDs one finalized matrix at horizon
+    """
+    
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    end_dir = f"final/{today}/finalized_data_{trader.name}_{trader.instrument}.csv"
+    full_path = os.path.join(base_dir , end_dir)
 
-    if not fpath.exists():
+    ## Make the directory if it doesn't exist
+    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+    
+    if not os.path.exists(full_path):
 
         return {
             "exists" : False,
-            "file" : fpath,
-            "df" : None
+            "file" : full_path,
+            "final" : None
         }
     
-    final_matrix = pd.read_csv(fpath)
     
-
+    final_matrix = pd.read_csv(full_path)
+    
     return {
         "exists" : True,
-        "file" : fpath,
-        "df": final_matrix
+        "file" : full_path,
+        "final": final_matrix
     }

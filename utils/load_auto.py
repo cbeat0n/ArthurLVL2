@@ -1,15 +1,23 @@
-### load_auto.py is a modular and agnostic framework for ETL-Auto that loads
-### the finalized matrix into the data/today/final folder.
+### load_auto.py is a modular and agnostic framework that performs
+### proprietary ETL in ETL-Auto for Arthur.
 
-# Dependencies
-import pandas as pd # Current L process is .csv locally
-import os
-from datetime import datetime
+## External Dependencies
+import pandas as pd # Library for data manipulation
+import os # Library for operating system communications
+from datetime import datetime # Library for time objects
 
 
 
-def load_final_data(final_data,finalfilepath):
+def load_final_data(final_data,final_filepath):
+    """
+    load_final_data loads the finalized record to storage.
+    It returns a JSON containing the filepath.
 
-    final_data.to_csv(finalfilepath, index=False)
+    Inputs:
+    final_data : pd.DataFrame - the finalized records
+    final_filepath : str - the finalized records filepath
+    """
+    
+    final_data.to_csv(final_filepath, index=False)
 
-    return finalfilepath
+    return {"file" : final_filepath}
