@@ -237,17 +237,17 @@ class Arthur():
         market_cycles = []
 
         start = time.time()
-       
-        with self.threadpool as pool: # Threading set up outside of cycle to only setup once, for concurrency
-            futures = [
-                pool.submit(self.trader_cycle,marketfile, m, t, kwargs)
-                for (m, t) in trader_pairs
-            ]
-            
-            cycletime = time.time() - start
+        
+        ## Threading set up outside of cycle to only setup once, for concurrency
+        futures = [
+            self.config.threadpool.submit(self.trader_cycle,marketfile, m, t, kwargs)
+            for (m, t) in trader_pairs
+        ]
+        
+        cycletime = time.time() - start
 
-            for f in as_completed(futures): # As completed, append cycles
-                market_cycles.append({"decision": f.result() , "cycletime" : cycletime})
+        for f in as_completed(futures): # As completed, append cycles
+            market_cycles.append({"decision": f.result() , "cycletime" : cycletime})
         
 
         return {"cycles" : market_cycles} # market_cycles is a list of dictionaries of the decisions and timelogs.
