@@ -1,0 +1,103 @@
+/* vaultshine.css
+   Theme: Vault Room — rare metal, deep oak, ingots, collateral
+*/
+
+body {
+  margin: 0;
+  font-family: "Merriweather", "Georgia", serif;
+  background: linear-gradient(
+    135deg,
+    #1b120a 0%,     /* deep oak */
+    #2d2417 40%,    /* darker oak grain */
+    #3b3b3b 100%    /* rare metal grey */
+  );
+  color: #e6e2d3; /* parchment steel */
+  padding: 2rem;
+}
+
+/* Header: like a vault door plaque */
+header {
+  border-bottom: 4px solid #a98c53; /* brass edge */
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  text-align: center;
+  background: linear-gradient(180deg, #3d2d1a, #1c140b);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.6);
+}
+
+header h1 {
+  font-size: 2.2rem;
+  margin: 0;
+  color: #d4af37; /* gold plaque text */
+  text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+}
+
+header .muted {
+  font-size: 0.9rem;
+  color: #c0b090;
+  margin-top: 0.5rem;
+}
+
+header .row {
+  margin-top: 1rem;
+}
+
+a.btn {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  background: linear-gradient(135deg, #b8860b, #daa520);
+  color: #fff;
+  font-weight: bold;
+  border-radius: 8px;
+  text-decoration: none;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.6);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+a.btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 5px 14px rgba(0,0,0,0.8);
+}
+
+/* Card layout: ingot style */
+main {
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+.card {
+  background: linear-gradient(145deg, #2f2a20, #1a140e);
+  border: 2px solid #6e5a3a; /* bronze trim */
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  box-shadow: inset 0 0 12px rgba(255, 255, 255, 0.08),
+              0 4px 12px rgba(0,0,0,0.7);
+}
+
+.card h2 {
+  margin-top: 0;
+  font-size: 1.4rem;
+  color: #d4c690;
+  border-bottom: 2px solid #5e4829;
+  padding-bottom: 0.3rem;
+}
+
+/* Grid for account summary ingots */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1rem;
+}
+
+.grid .card {
+  text-align: center;
+  background: linear-gradient(180deg, #2a2315, #1d1a12);
+  border: 1px solid #7d6a46;
+  color: #f4e6c6;
+}
+
+.muted {
+  color: #9a8e7a;
+  font-size: 0.85rem;
+}

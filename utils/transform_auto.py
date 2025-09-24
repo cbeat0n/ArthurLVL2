@@ -14,7 +14,7 @@ from utils.transform_signal import REGIME
 from verificationlearning.historicaldataverification import pip_size
 
 ## Columns inside the finalized matrix.
-COLS = ["accountID","name" ,"riskmanager","ts", "d_int" , "d_hor" , "instrument" ,"regime" , "B", "S" ,"Margin","Intensity", "U" , "V" , "UxV", 
+COLS = ["accountID","name" ,"riskmanager","ts", "d_int" , "d_hor" , "d_zone", "instrument" ,"regime" , "B", "S" ,"Margin","Intensity", "U" , "V" , "UxV", 
         "ActionHat", "lotsize_roll", "B_a" , "S_a" , "T_a" , "why_unfill" , "liquidity", "bid",
         "ask" , "spread" , "intended" , "fill_roll" , "slip_r_roll" , "slip_a_roll" , "slip_pips_roll" , "open", "high" , "low",
         "close" , "volume" , "open_orders" , "open_trades" , "p_roll" , "G_roll" , "L_roll",
@@ -168,6 +168,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         firstrow["ts"] = signal["timestamp"].iloc[-1]
         firstrow["d_int"] = trader.intakeGranularity
         firstrow["d_hor"] = trader.horizonGranularity
+        firstrow["d_zone"] = trader.config.zone
         firstrow["instrument"] = trader.instrument
         firstrow["regime"] = REGIME
         firstrow["B"] = signal["B"]
@@ -330,6 +331,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         firstrow["ts"] = signal["timestamp"].iloc[-1]
         firstrow["d_int"] = trader.intakeGranularity
         firstrow["d_hor"] = trader.horizonGranularity
+        firstrow["d_zone"] = trader.config.zone
         firstrow["instrument"] = trader.instrument
         firstrow["regime"] = REGIME
         firstrow["B"] = signal["B"]

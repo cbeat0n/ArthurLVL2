@@ -23,8 +23,8 @@ GS_REG = 1 # gsreg in {0,0.15,0.25,0.55,0.75,1} , other values not tested
 MREG = -1 # mreg in {-1,1} , other values not tested
 IREG = 1 # ireg in {-1,1} , other values not tested & mreg ireg not both -1
 ECO_ROLL = 20 # ecoroll not tested yet
-SMALL_LAG = 2 # small lag in {3,4,5,6,7,8,9,10,11,12,13,14,15} , other values not tested , s < l only
-LARGE_LAG = 4 # large lag in {3,4,5,6,7,8,9,10,11,12,13,14,15} , other values not tested
+SMALL_LAG = 2 # small lag in {2,3,4,5,6,7,8,9,10,11,12,13,14} , other values not tested , s < zone only
+
 
 ## Observed Values of Theta and Mu as phenomena
 ## U and V are not going to be perfectly sortable as unsupervised cluster space.
@@ -36,7 +36,7 @@ LARGE_LAG = 4 # large lag in {3,4,5,6,7,8,9,10,11,12,13,14,15} , other values no
 ## Regime is the market structure over time.
 REGIME = {"ewmhalflife" : HALFLIFE, "zwindow" : Z_WINDOW, "rsi_p" : RSI_PERIOD, "beta" : BETA_SMOOTHER,
            "e_beta" : EPS_BETA, "beta_b" : BETA_B, "beta_s" : BETA_S, "gs" :  GS_REG, 
-           "mreg" : MREG, "ireg" : IREG, "L_s" : SMALL_LAG, "L_l" : LARGE_LAG}
+           "mreg" : MREG, "ireg" : IREG, "L_s" : SMALL_LAG}
 
 
 ## HYPERPARAMETERS
@@ -60,7 +60,7 @@ def decisionrule(sample : pd.Series):
     """
 
     if True:
-        return 2 ## Naive Hold
+        return 0 ## Naive Mode (B/S/H) for demonstration purposes, then parameterize DR.
     
     ## 0 is BUY
     ## 1 is SELL
@@ -83,7 +83,7 @@ def convert_timestamp(ts_str: str):
     return dt.hour * 3600 + dt.minute * 60 + dt.second
 
 
-def transform_to_signal(filename: str):
+def transform_to_signal(filename: str , zone : int):
     """
     transform_to_signal is the financial mathematical engine for Arthur. Using proprietary technology
     an output signal is generated.
@@ -91,6 +91,7 @@ def transform_to_signal(filename: str):
 
     Inputs:
     filename : str - the file location of the cleaned csv
+    zone : int - the number of horizons to make a decision context over
     """
     
     proto_signal = pd.read_csv(filename)
@@ -213,8 +214,8 @@ def transform_to_signal(filename: str):
     ## Theta Calculations
 
     ## Use simple unit time step to avoid time-scale domination
-    proto_signal["dBdt"] = proto_signal["B"].diff(LARGE_LAG) / LARGE_LAG
-    proto_signal["dSdt"] = proto_signal["S"].diff(LARGE_LAG) / LARGE_LAG
+    proto_signal["dBdt"] = proto_signal["B"].diff(zone) / zone
+    proto_signal["dSdt"] = proto_signal["S"].diff(zone) / zone
 
 
     ## Two 2D vectors that encode direction of change over the last few steps
@@ -244,7 +245,7 @@ def transform_to_signal(filename: str):
     proto_signal["Intensity"] = proto_signal["Intensity"].round(RFIGS)
 
     proto_signal["Mu_s"] = proto_signal["Margin"].diff(SMALL_LAG).apply(lambda x : EPS_SMOOTHER if np.abs(x) < EPS_SMOOTHER else x) 
-    proto_signal["Mu_l"] = proto_signal["Margin"].diff(LARGE_LAG).apply(lambda x : EPS_SMOOTHER if np.abs(x) < EPS_SMOOTHER else x)
+    proto_signal["Mu_l"] = proto_signal["Margin"].diff(zone).apply(lambda x : EPS_SMOOTHER if np.abs(x) < EPS_SMOOTHER else x)
 
     proto_signal["Mu"] = (proto_signal["Mu_s"] - proto_signal["Mu_l"] ) / proto_signal["Mu_l"]
     proto_signal["Mu"] = proto_signal["Mu"].round(RFIGS)

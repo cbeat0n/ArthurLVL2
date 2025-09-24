@@ -1,0 +1,66 @@
+/* overhang.css is a modular and agnostic framework for the market_view.html dashboard.
+It features soothing yet bright colors for the sunshine, smokey burnt colors for the
+connection to the Parlor Room and drink, and light blue green colors for the grass
+and horses.
+*/
+
+body {
+  margin: 0;
+  font-family: "Garamond", "Georgia", serif;
+  background: linear-gradient(
+    120deg,
+    rgba(255, 186, 73, 0.9),   /* burnt rum orange */
+    rgba(252, 228, 159, 0.8),  /* bright morning yellow */
+    rgba(160, 215, 200, 0.6)   /* seafoam turquoise dew */
+  );
+  color: #2e2a1f; /* smoky brown */
+  padding: 2rem;
+}
+
+/* Header placard */
+h1 {
+  text-align: center;
+  font-size: 2rem;
+  margin-bottom: 2rem;
+  color: #6a3e1f; /* burnt rum */
+  text-shadow: 0 2px 6px rgba(255, 233, 180, 0.8);
+  border-bottom: 3px solid #e6a344;
+  padding-bottom: 0.5rem;
+}
+
+/* Info boxes for Theta and Action */
+.info-box {
+  display: inline-block;
+  margin: 0.5rem 1rem;
+  padding: 1rem 1.5rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+  font-size: 1rem;
+  font-weight: bold;
+}
+
+/* Theta and Action: slightly different accents */
+.theta-box {
+  border: 2px solid #b25f1f; /* whiskey accent */
+}
+.action-box {
+  border: 2px solid #3b6e68; /* deep turquoise */
+}
+
+/* Plot containers: windows into the track */
+.plot-container {
+  margin: 2rem auto;
+  padding: 1rem;
+  background: rgba(255,255,255,0.6);
+  border-radius: 16px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+  max-width: 900px;
+}
+
+/* Plots take full width of container */
+.plot-container > div {
+  width: 100% !important;
+  height: 100% !important;
+}

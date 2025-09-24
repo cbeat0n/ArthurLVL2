@@ -197,7 +197,7 @@ class Arthur():
 
         ## T2
         ## signal DataFrame
-        signal_matrix = transform_to_signal(filename)["signal"]
+        signal_matrix = transform_to_signal(filename , self.config.zone)["signal"]
 
         ## L2
         ## filename for the signal data

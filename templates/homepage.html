@@ -9,7 +9,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <link rel="stylesheet" href="{{ url_for('static', filename='shelbyflair.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='oldmoney.css') }}">
   <title>Arthur — Parlor Room</title>
 </head>
 <body class="arthur-home">
@@ -33,7 +33,7 @@
           <option value="EUR_USD">EUR/USD</option>
         </select>
 
-        <!-- Intake granularity (data refresh) -->
+        <!-- Intake granularity (data realtime frequency) -->
         <label for="intake">Intake Granularity:</label>
         <select name="intake" id="intake" required>
           <option value="S5" selected>S5</option>
@@ -42,7 +42,7 @@
           <option value="S30">S30</option>
         </select>
 
-        <!-- Horizon granularity (decision horizon) -->
+        <!-- Horizon granularity (decision frequency) -->
         <label for="horizon">Horizon Granularity:</label>
         <select name="horizon" id="horizon" required>
           <option value="M1" selected>M1</option>
@@ -50,6 +50,24 @@
           <option value="M5">M4</option>
           <option value="M10">M5</option>
           <option value="M15">M10</option>
+        </select>
+
+        <!-- Zone granularity (decision context frequency) -->
+        <label for="zone">Zone Granularity:</label>
+        <select name="zone" id="zone" required>
+          <option value="3" selected>3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+          <option value="6">6</option>
+          <option value="7">7</option>
+          <option value="8">8</option>
+          <option value="9">9</option>
+          <option value="10">10</option>
+          <option value="11">11</option>
+          <option value="12">12</option>
+          <option value="13">13</option>
+          <option value="14">14</option>
+          <option value="15">15</option>
         </select>
 
         <!-- Number of Managers, MVP = 1-->
@@ -73,13 +91,11 @@
           <option value="Demo" selected>Demo</option>
           <option value="Live">Live</option>
         </select>
-
-        <button type="submit">Run</button>
       </form>
 
       <!-- Vault Button -->
        <form method = "GET" action = "/accounting" target="_blank">
-        <button type ="submit">Enter Vault</button>
+        <button type ="submit">Vault & Overhang Access</button>
        </form>
 
 

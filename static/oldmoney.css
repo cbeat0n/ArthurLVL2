@@ -1,0 +1,104 @@
+/* oldmoney.css is a modular and agnostic framework for the homepage.html page.
+It features old money aesthetic and feeling with leather, gold, brass, smoke,
+and hard alcohol. */
+
+/* Base Layout : Mixed */
+body.arthur-home {
+  margin: 0;
+  font-family: 'Garamond', 'Georgia', serif;
+  background-color: #1a1a1a; /* deep charcoal */
+  color: #e0d7c6; /* parchment tone */
+  line-height: 1.6;
+}
+
+/* Wrapper : Wood Panels */
+.arthur-wrap {
+  max-width: 1000px;
+  margin: 2rem auto;
+  padding: 2rem;
+  background: linear-gradient(145deg, #1b1b1b, #111);
+  border: 2px solid #a87e2d; /* muted gold trim */
+  border-radius: 8px;
+  box-shadow: 0 0 40px rgba(0,0,0,0.9);
+}
+
+/* Header Plaque : Mixed */
+.arthur-header {
+  text-align: center;
+  padding: 1.5rem;
+  background: #2a2a2a;
+  border-bottom: 2px solid #a87e2d;
+  margin-bottom: 2rem;
+}
+.arthur-brand {
+  color: #d1b85a;
+  font-size: 2rem;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+.arthur-sub {
+  color: #c7b07a;
+  font-style: italic;
+  margin-top: 0.5rem;
+}
+
+/* Hero Title : Mixed */
+.hero-title {
+  text-align: center;
+  font-size: 1.5rem;
+  color: #e0d7c6;
+  margin-bottom: 2rem;
+  text-shadow: 0 0 10px rgba(0,0,0,0.8);
+}
+
+/* Control Panel Form */
+form {
+  background: rgba(36, 24, 14, 0.85); /* leather overlay */
+  border: 1px solid #5c442a;
+  padding: 1.5rem;
+  border-radius: 6px;
+  margin-bottom: 2rem;
+  box-shadow: inset 0 0 15px rgba(0,0,0,0.7);
+}
+
+label {
+  display: block;
+  margin: 0.75rem 0 0.25rem;
+  font-weight: bold;
+  color: #d1b85a; /* brass text */
+}
+
+select {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #a87e2d;
+  border-radius: 4px;
+  background: #2a2a2a;
+  color: #e0d7c6;
+  margin-bottom: 1rem;
+  font-family: inherit;
+}
+select:focus {
+  outline: none;
+  border-color: #f4e4b0;
+}
+
+/* Buttons : Brass Fixtures */
+button {
+  background: #3b2b1a;
+  color: #e0d7c6;
+  border: 1px solid #a87e2d;
+  padding: 0.6rem 1.2rem;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: inline-block;
+  margin-top: 0.5rem;
+}
+button:hover {
+  background: #5c442a;
+  color: #f4e4b0;
+  box-shadow: 0 0 15px rgba(168, 126, 45, 0.5);
+}
