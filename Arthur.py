@@ -6,6 +6,7 @@
 
 ## External Dependencies
 from dotenv import load_dotenv # Env hides API Key
+import requests # Library for handling HTTP requests
 from flask import Flask, render_template, request # Flask is common microwebframework
 import pandas as pd # Library for data manipulation
 import time # Library for time
@@ -30,7 +31,6 @@ ArthurFlask = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 REGISTRY = {"vendor" : None , "platform" : os.getenv("OANDADEMOAPIKEY")} # Can keep .env separate
 VENDOR = DataVendor() # Blank because MVP uses Oanda
-PLATFORM = OandaTrading(REGISTRY['platform'])
 EVENT = Event()
 
 
@@ -64,16 +64,19 @@ def enter_vault():
     instrument = request.args.get("currencyPair", "USD_JPY")
     intake = request.args.get("intake", "S5")
     horizon = request.args.get("horizon", "M1")
-    zone = request.args.get("zone", "10")
+    zone = int(request.args.get("zone", "10"))
     managers = int(request.args.get("Managers", 1))
     traders = int(request.args.get("traders", 1))
     mode = request.args.get("mode", "Demo")
+    
+    ## Local variable to change it without scope violation
+    platform = OandaTrading(REGISTRY["platform"])
 
     config = ArthurConfig(
         base_dir=BASE_DIR,
         mode=mode,
         vendor=VENDOR,
-        platform=PLATFORM,
+        platform=platform,
         registry=REGISTRY,
         instrument=instrument,
         intake=intake,
@@ -82,19 +85,27 @@ def enter_vault():
         threadpool=ThreadPoolExecutor(max_workers = managers*traders), # Static, dynamic later
         event=EVENT
     )
+    
+    ## Make Platform & Arthur Instance
+    platform.set_config(config)
     ArthurInstance = Arthur(cfg = config , teamstructure = {"managers" : managers , "traders" : traders})
 
-    # logic that sets up accounting page params , runs the trades , and sets up params for market _ view.
-    account_summary = ArthurInstance._accounting()
+    ## Accounting Information
+    account_summary = ArthurInstance._accounting()["summary"]
+
+    ## Arthur Ignition
     ignition_center = ArthurInstance._ignition_A()
-    signal_matrix , signal_filename = ArthurInstance._acquire_market()
+
+    ## Acquire Market information
+    signal_filename = ArthurInstance._acquire_market()["location"]
     
     if ignition_center == "OPEN":
         ArthurInstance._market_cycle(marketfile=signal_filename)
     else:
+        ArthurInstance.shutdown()
         print("Trading out of bounds for current business operations.")
         print("Check operational integrity for reasoning.")
-
+        requests.post("http://127.0.0.1:5000/shutdownserver")
 
     return render_template("vault_storage.html", 
                            accountSummary = account_summary,
@@ -113,16 +124,39 @@ def visualize_market():
     None
     """
     
-    filepath = request.get.args("signalFile")
+    ## File of the signal for lightweight communication
+    filepath = request.args.get("signalFile")
+
+    ## JSON of the signal
     ui_signal_matrix = pd.read_csv(filepath).to_dict("records")
-    ui_instrument = request.get.args("instrument")
-    ui_horizon = request.get.args("horizon")
+
+    ## Instrument and Refresh Rate as Horizon
+    ui_instrument = request.args.get("instrument")
+    ui_horizon = request.args.get("horizon")
 
     return render_template("market_view.html",
                            signalMatrix=ui_signal_matrix,
                            instrument=ui_instrument,
                            refreshRate=ui_horizon)
+
+
+@ArthurFlask.route("/shutdownserver", methods=["POST"])
+def shut_down_server():
+    """
+    shut_down_server shuts down the Werkzeug in a mooth manner.
+    It returns a string.
+
+    Inputs:
+    None
+    """
     
+    func = request.environ.get("werkzeug.server.shutdown")
+    if func is None:
+        raise RuntimeError("Not running with the Werkzeug Server")
+    
+    func()
+    
+    return "Server shutting down..."  # Smooth shutdown
 
 ## Debug = True for BASH logging
 if __name__ == "__main__":

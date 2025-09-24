@@ -87,6 +87,7 @@ class Arthur():
     market_cycle : one OODA loop for Arthur
     _acquire_market : ETL-Base
     _accounting : accounting dashboard summarizer function
+    shutdown : shuts down the ThreadPoolExecutor
     """
     
     def __init__(self , cfg : ArthurConfig,  teamstructure : dict) -> None:
@@ -127,6 +128,19 @@ class Arthur():
                 self.traders.append(trader)
            
             manager.set_trader_team(team)
+
+    def shutdown(self, wait: bool = True):
+        """
+        shutdown takes the ThreadPoolExecutor, lets it finish any work,
+        and then shuts it down.
+
+        Inputs:
+        self : self
+        wait : bool = True - Whether or not to wait on work
+        """
+        if self.config.threadpool:
+            self.config.threadpool.shutdown(wait=wait)
+            self.config.threadpool = None
 
     def _ignition_A(self):
         """
@@ -689,11 +703,11 @@ class OandaTrading(Platform):
     count_trades : function that counts todays closed buy trades for RiskManager budget function
     """
     
-    def __init__(self, api_key : str , cfg : ArthurConfig):
+    def __init__(self, api_key : str):
         self.authorization = api_key # Authorization
         self.accountID = None # Point to Nothing , Set to Anything
         self.instrument = None # Point to Nothing, Set to Anything
-        self.config = cfg
+        self.config = None
         self.orderSpecifier = None # No particular order per account , Set to Anything
         self.tradeSpecifier = None # No particular order per account , Set to Anything
 
@@ -793,6 +807,18 @@ class OandaTrading(Platform):
         """
 
         self.tradeSpecifier = tradeSpecifier
+
+    def set_config(self , cfg : ArthurConfig):
+        """
+        set_config is a setter function for the configuration of the instance
+        in the OandaTrading object.
+
+        Inputs:
+        self : self
+        cfg : ArthurConfig - the configuration of the instance
+        """
+    
+        self.config = cfg
 
     def make_url(self , mode : str, endpoint: str , subEndpoint: int , **kw):
         """

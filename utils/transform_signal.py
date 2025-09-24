@@ -60,7 +60,7 @@ def decisionrule(sample : pd.Series):
     """
 
     if True:
-        return 0 ## Naive Mode (B/S/H) for demonstration purposes, then parameterize DR.
+        return 2 ## Naive Mode (B/S/H) for demonstration purposes, then parameterize DR.
     
     ## 0 is BUY
     ## 1 is SELL
