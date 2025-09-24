@@ -16,7 +16,7 @@ refresh at the rate of the granularity chosen whether this is S5 or something el
   <script>
     // Auto refresh based on granularity (e.g. S5 = 5000ms)
     const granularityMap = { S5: 5000, S10: 10000, S15: 15000, S30: 30000, M1: 60000 };
-    const refreshRate = granularityMap["{{ granularity }}"] || 30000; // fallback 30s
+    const refreshRate = granularityMap["{{ granularity }}"] + 1250; // fallback 30s
     setTimeout(() => { location.reload(); }, refreshRate);
   </script>
 </head>

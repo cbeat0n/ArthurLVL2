@@ -18,7 +18,7 @@
       <div class="muted">Instrument: <strong>{{ instrument|default('—') }}</strong> • Horizon: <strong>{{ refreshRate|default('—') }}</strong></div>
     </div>
     <div class="row">
-      <a class="btn" href="/visualize/?{{ signalFile|default('') }}&instrument={{ instrument|default('') }}&horizon={{ refreshRate|default('') }}">Open Market View</a>
+      <a class="btn" href="/visualize/?signalFile={{ signalFile|default('') }}&instrument={{ instrument|default('') }}&horizon={{ refreshRate|default('') }}">Open Market View</a>
     </div>
   </header>
   <main>

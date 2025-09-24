@@ -61,34 +61,39 @@ def enter_vault():
     None
     """
 
-    instrument = request.args.get("currencyPair", "USD_JPY")
-    intake = request.args.get("intake", "S5")
-    horizon = request.args.get("horizon", "M1")
-    zone = int(request.args.get("zone", "10"))
-    managers = int(request.args.get("Managers", 1))
-    traders = int(request.args.get("traders", 1))
-    mode = request.args.get("mode", "Demo")
+        
     
-    ## Local variable to change it without scope violation
-    platform = OandaTrading(REGISTRY["platform"])
+    if config is None: # If not configured, make it so. Otherwise, pull.
+        # Only pull request.args collection once for latency saving.
 
-    config = ArthurConfig(
-        base_dir=BASE_DIR,
-        mode=mode,
-        vendor=VENDOR,
-        platform=platform,
-        registry=REGISTRY,
-        instrument=instrument,
-        intake=intake,
-        horizon=horizon,
-        zone=zone,
-        threadpool=ThreadPoolExecutor(max_workers = managers*traders), # Static, dynamic later
-        event=EVENT
-    )
-    
-    ## Make Platform & Arthur Instance
-    platform.set_config(config)
-    ArthurInstance = Arthur(cfg = config , teamstructure = {"managers" : managers , "traders" : traders})
+        instrument = request.args.get("currencyPair", "USD_JPY")
+        intake = request.args.get("intake", "S5")
+        horizon = request.args.get("horizon", "M1")
+        zone = int(request.args.get("zone", "10"))
+        managers = int(request.args.get("Managers", 1))
+        traders = int(request.args.get("traders", 1))
+        mode = request.args.get("mode", "Demo")
+
+        ## Local variable to change it without scope violation
+        platform = OandaTrading(REGISTRY["platform"])
+
+        config = ArthurConfig(
+            base_dir=BASE_DIR,
+            mode=mode,
+            vendor=VENDOR,
+            platform=platform,
+            registry=REGISTRY,
+            instrument=instrument,
+            intake=intake,
+            horizon=horizon,
+            zone=zone,
+            threadpool=ThreadPoolExecutor(max_workers = managers*traders), # Static, dynamic later
+            event=EVENT
+        )
+        
+        ## Make Platform & Arthur Instance
+        platform.set_config(config)
+        ArthurInstance = Arthur(cfg = config , teamstructure = {"managers" : managers , "traders" : traders})
 
     ## Accounting Information
     account_summary = ArthurInstance._accounting()["summary"]
