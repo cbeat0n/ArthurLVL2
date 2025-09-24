@@ -264,8 +264,18 @@ class Arthur():
             market_cycles.append({"decision": f.result() , "cycletime" : cycletime})
         
 
-        return {"cycles" : market_cycles} # market_cycles is a list of dictionaries of the decisions and timelogs.
-        # It is currently inactive, but is there when needed.
+        cycles = pd.DataFrame(market_cycles)
+    
+        today = datetime.now(ZoneInfo("UTC")).strftime("%Y-%m-%d")
+        present = datetime.now(ZoneInfo("UTC")).strftime("%H-%M-%S")
+        end_dir = f"logs/{today}/logs_{present}.csv"
+        full_path = os.path.join(self.config.base_dir,end_dir)
+
+        ## Make the directory if it doesn't exist
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+
+        cycles.to_csv(full_path, index=False)
+
 
 
     def _accounting(self):

@@ -109,7 +109,7 @@ def enter_vault():
     else:
         ArthurInstance.shutdown()
         print("Trading out of bounds for current business operations.")
-        print("Check operational integrity for reasoning.")
+        print("Check logs for information.")
         requests.post("http://127.0.0.1:5000/shutdownserver")
 
     return render_template("vault_storage.html", 
