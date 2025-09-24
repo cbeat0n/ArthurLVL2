@@ -20,10 +20,10 @@
     </header>
 
     <main class="container">
-      <h1 class="hero-title">-Welcome to First Class-</h1>
+      <h1 class="hero-title">-What are you interested in today, Sir?-</h1>
 
       <!-- Control Panel -->
-      <form id="runForm">
+      <form method="GET" action="/accounting" target="_blank">
         <!-- Single FX pair -->
         <label for="currencyPair">FX Pair:</label>
         <select name="currencyPair" id="currencyPair" required>
@@ -91,34 +91,15 @@
           <option value="Demo" selected>Demo</option>
           <option value="Live">Live</option>
         </select>
-      </form>
-
+      
       <!-- Vault Button -->
-       <form method = "GET" action = "/accounting" target="_blank">
         <button type ="submit">Vault & Overhang Access</button>
-       </form>
-
+      
+      </form>
 
     </main>
   </div>
 
-  <script>
-    // Open N visualize tabs without sending any big payloads
-    document.getElementById('runForm').addEventListener('submit', function (e) {
-      e.preventDefault();
-
-      const pair = document.getElementById('currencyPair').value;
-      const intake = document.getElementById('intake').value;
-      const horizon = document.getElementById('horizon').value;
-      const n = parseInt(document.getElementById('traders').value, 10);
-
-      // Open N tabs: /visualize/<instrument>?granularity=<intake>&horizon=<horizon>&trader=<k>
-      for (let k = 1; k <= n; k++) {
-        const url = `/visualize/${encodeURIComponent(pair)}?granularity=${encodeURIComponent(intake)}&horizon=${encodeURIComponent(horizon)}&trader=${k}`;
-        window.open(url, '_blank');
-      }
-    });
-  </script>
 </body>
 </html>
 
