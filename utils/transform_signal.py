@@ -83,6 +83,8 @@ def convert_timestamp(ts_str: str):
     return dt.hour * 3600 + dt.minute * 60 + dt.second
 
 
+
+
 def transform_to_signal(filename: str , zone : int):
     """
     transform_to_signal is the financial mathematical engine for Arthur. Using proprietary technology

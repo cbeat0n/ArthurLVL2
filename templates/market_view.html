@@ -12,78 +12,96 @@ refresh at the rate of the granularity chosen whether this is S5 or something el
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script> 
   <!-- Static version, watch this parameter-->
   
-
   <script>
-    // Auto refresh based on granularity (e.g. S5 = 5000ms)
-    const granularityMap = { S5: 5000, S10: 10000, S15: 15000, S30: 30000, M1: 60000 };
+    // Auto refresh based on granularity (e.g. M1 = 60000ms)
+    const granularityMap = { M1: 60000 , M2 : 120000 , M4 : 240000 , M5 : 300000 , M10 : 600000 };
     const refreshRate = granularityMap["{{ granularity }}"] + 1250; // fallback 30s
     setTimeout(() => { location.reload(); }, refreshRate);
   </script>
+
 </head>
 <body>
-  <h1>Arthur | Market View - {{ instrument }}</h1>
+  <h1>Arthur | Market View</h1>
+  <div class="subheader">
+    Instrument: <strong>{{ instrument }}</strong> • Horizon: <strong>{{ horizon }}</strong> • Zone: <strong>{{ zone }}</strong>
+  </div>
 
-  <!-- Theta and ActionHat Boxes -->
+  <!-- Info Boxes -->
   {% if signalMatrix and signalMatrix|length > 0 %}
     {% set latest = signalMatrix[-1] %}
-    <div class="info-box theta-box">
-      <strong>Theta:</strong> {{ latest.theta | round(8) }}°
-    </div>
-    <div class="info-box action-box">
-      <strong>Action:</strong> {{ ["BUY", "SELL", "HOLD"][latest.ActionHat | int] }}
+    <div class="info-boxes">
+      <div class="info-box"><strong>Theta</strong><br>{{ latest.Theta | round(4) }}</div>
+      <div class="info-box"><strong>Mu</strong><br>{{ latest.Mu | round(4) }}</div>
+      <div class="info-box"><strong>B</strong><br>{{ latest.B | round(4) }}</div>
+      <div class="info-box"><strong>S</strong><br>{{ latest.S | round(4) }}</div>
+      <div class="info-box"><strong>Action</strong><br>{{ ["BUY", "SELL", "HOLD"][latest.ActionHat | int] }}</div>
     </div>
   {% endif %}
 
-  <!-- Set up dynamic UIUX coloring on ActionBox-->
-   <script>
-    if (latest.ActionHat = 0) {
-      colorMode = chartreuse
-      
-    }
-
-    if (latest.ActionHat = 1) {
-      colorMode = lemonchiffon
-    }
-
-    if (latest.ActionHat = 2) {
-      colorMode = darkcyan
-    }
-   </script>
-
   <!-- Plots -->
-  <div class="plot-container" id="plot-composite"></div>
+  <div class="plot-container" id="plot-price"></div>
   <div class="plot-container" id="plot-B"></div>
   <div class="plot-container" id="plot-S"></div>
-  
+  <div class="plot-container" id="plot-M"></div>
+  <div class="plot-container" id="plot-BS-space"></div>
+  <div class="plot-container" id="plot-UV-space"></div>
 
-  <!-- SignalMatrix as JSON -->
+  <!-- SignalMatrix JSON -->
   <script type="application/json" id="signal-data">
     {{ signalMatrix | tojson | safe }}
   </script>
 
   <script>
     const signalData = JSON.parse(document.getElementById("signal-data").textContent);
-    const t_sec = signalData.map(d => d.t_sec);
-    const t_stamp = signalData.map(d => d.timestamp)
-    const B = signalData.map(d => d.B);
-    const S = signalData.map(d => d.S);
-    const value = signalData.map(d => d.value);
-    const margin = signalData.map(d => d.margin);
 
-    Plotly.newPlot('plot-B', [{ x: t_stamp, y: margin, name: 'B-S', mode: 'lines', line: { color: 'green' }}], {
-      title: 'B-S vs Time', xaxis: { title: 't_stamp' }, yaxis: { title: 'B-S' }
+    // Extract series
+    const raw_timestamps = signalData.map(d => d.timestamp); // Raw TS
+
+    // Transform into HH:MM:SS strings
+    const t_stamp = raw_timestamps.map(ts => {
+      // Make sure it looks like an ISO timestamp, then split at 'T'
+      const timePart = ts.split("T")[1] || ts;
+      // Remove fractional seconds and Z (if present)
+      const hhmmss = timePart.replace("Z", "").split(".")[0];
+      return hhmmss; // returns "23:20:00"
     });
 
-    Plotly.newPlot('plot-S', [{ x: t_stamp, y: value, name: 'Value', mode: 'lines', line: { color: 'yellow' }}], {
-      title: 'Value vs Time', xaxis: { title: 't_stamp' }, yaxis: { title: 'Value' }
-    });
+    const price = signalData.map(d => d.value); // Value of Asset
+    const B = signalData.map(d => d.B); // Buying Pressure
+    const S = signalData.map(d => d.S); // Selling Pressure
+    const BS = signalData.map(d => d.Margin); // Margin = B-S
+    const theta = signalData.map(d => d.Theta); // Theta as MVP U
+    const mu = signalData.map(d => d.Mu); // Mu as MVP V
 
-    Plotly.newPlot('plot-composite', [
-      { x: t_stamp, y: B, name: 'B', mode: 'lines', line: { color: 'green' } },
-      { x: t_stamp, y: S, name: 'S', mode: 'lines', line: { color: 'yellow' } }
-    ], {
-      title: 'B and S Composite vs Time', xaxis: { title: 't_stamp' }, yaxis: { title: 'Value' }
-    });
+    // Price vs Time
+    Plotly.newPlot('plot-price', [{
+      x: t_stamp, y: price, mode: 'lines', name: 'Price', line: { color: 'blue' }
+    }], { title: 'Price vs Time', xaxis: { title: 'Time' }, yaxis: { title: 'Price' } });
+
+    // B vs Time
+    Plotly.newPlot('plot-B', [{
+      x: t_stamp, y: B, mode: 'lines', name: 'Buying Pressure', line: { color: 'green' }
+    }], { title: 'Buying Pressure vs Time', xaxis: { title: 'Time' }, yaxis: { title: 'B' } });
+
+    // S vs Time
+    Plotly.newPlot('plot-S', [{
+      x: t_stamp, y: S, mode: 'lines', name: 'Selling Pressure', line: { color: 'red' }
+    }], { title: 'Selling Pressure vs Time', xaxis: { title: 'Time' }, yaxis: { title: 'S' } });
+
+    // B-S vs Time
+    Plotly.newPlot('plot-M', [{
+      x: t_stamp, y: BS, mode: 'lines', name: 'B-S', line: { color: 'purple' }
+    }], { title: 'B-S vs Time', xaxis: { title: 'Time' }, yaxis: { title: 'B-S' } });
+
+    // Dynamical space: (B,S)
+    Plotly.newPlot('plot-BS-space', [{
+      x: B, y: S, mode: 'markers+lines', name: '(B,S)', marker: { color: 'orange', size: 6 }
+    }], { title: '(B,S) Space', xaxis: { title: 'B' }, yaxis: { title: 'S' } });
+
+    // Dynamical space: (Theta, Mu)
+    Plotly.newPlot('plot-UV-space', [{
+      x: theta, y: mu, mode: 'markers+lines', name: '(Theta, Mu)', marker: { color: 'teal', size: 6 }
+    }], { title: '(Theta, Mu) Space', xaxis: { title: 'Theta' }, yaxis: { title: 'Mu' } });
   </script>
 </body>
 </html>

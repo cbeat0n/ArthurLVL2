@@ -116,7 +116,8 @@ def enter_vault():
                            accountSummary = account_summary,
                            signalFile = signal_filename,
                            instrument = instrument,
-                           refreshRate = horizon)
+                           refreshRate = horizon,
+                           zone = zone)
 
 @ArthurFlask.route("/visualize/", methods=["GET"])
 def visualize_market():
@@ -138,11 +139,13 @@ def visualize_market():
     ## Instrument and Refresh Rate as Horizon
     ui_instrument = request.args.get("instrument")
     ui_horizon = request.args.get("horizon")
+    ui_zone = request.args.get("zone")
 
     return render_template("market_view.html",
                            signalMatrix=ui_signal_matrix,
                            instrument=ui_instrument,
-                           refreshRate=ui_horizon)
+                           refreshRate=ui_horizon,
+                           zone = ui_zone)
 
 
 @ArthurFlask.route("/shutdownserver", methods=["POST"])
