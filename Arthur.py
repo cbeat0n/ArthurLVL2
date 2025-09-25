@@ -23,6 +23,7 @@ from utils.transform_signal import decisionrule , transform_to_signal
 from utils.load_signal import load_signal_matrix
 from utils.operators import DataVendor , Platform , OandaTrading ,ArthurConfig, Arthur
 from utils.operators import RiskManager , Trader
+from utils.operators import BusinessState
 
 ## Load environment variables from the .env file
 load_dotenv()
@@ -33,7 +34,7 @@ GLOBAL_STATE = {"Arthur" : None , "State" : None} # Arthur and its corresponding
 BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),"data")
 REGISTRY = {"vendor" : None , "platform" : os.getenv("OANDADEMOAPIKEY")} # Can keep .env separate
 VENDOR = DataVendor() # Blank because MVP uses Oanda
-EVENT = ... ## make enum for open closed holding
+
 
 
 
@@ -90,14 +91,14 @@ def enter_vault():
             horizon=horizon,
             zone=zone,
             threadpool=ThreadPoolExecutor(max_workers = managers*traders), # Static, dynamic later
-            event=EVENT
+            state=BusinessState.OPEN
         )
         
         ## Make Platform & Arthur Instance
         platform.set_config(config)
         platform.set_instrument(instrument) # Hardcoded instrument
         GLOBAL_STATE["Arthur"] = Arthur(cfg = config , teamstructure = {"managers" : managers , "traders" : traders})
-        
+        GLOBAL_STATE["State"] = config.businessstate
     
     else:
         print(f"GLOBAL_STATE of Arthur INSTANTIATED as of {datetime.now(timezone.utc)} UTC")
@@ -113,10 +114,14 @@ def enter_vault():
     ## Acquire Market information
     signal_filename = arthur._acquire_market()["location"]
     
-    if ignition_center == "OPEN":
+    if ignition_center == BusinessState.OPEN:
         arthur._market_cycle(marketfile=signal_filename)
     else:
-        arthur.shutdown()
+        GLOBAL_STATE["Arthur"].config.businessstate = BusinessState.CLOSED
+        GLOBAL_STATE["State"] = BusinessState.CLOSED
+        
+        arthur.shutdown() # Stops thread pooling
+        
         print("Trading out of bounds for current business operations.")
         print("Check logs for information.")
         raise SystemExit(0)
@@ -167,6 +172,10 @@ def shut_down_server():
     Inputs:
     None
     """
+
+    ### CURRENTLY FOR WERKZEUG, USING WAITRESS. SHUTDOWN NEEDS TO 
+    ### GO THROUGH SIGNAL FOR CONTAINMENT AND PROD SERVER AND VPS,
+    ### NOT FOR MVP.
     
     func = request.environ.get("werkzeug.server.shutdown")
     if func is None:

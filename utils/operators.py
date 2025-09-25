@@ -15,6 +15,7 @@ import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Event
 import time
+from enum import Enum
 
 ## Internal Dependencies
 from utils.generic import fetch_candles
@@ -28,6 +29,11 @@ from utils.generic import finalize_records
 from utils.generic import load_final_data
 
 
+class BusinessState(Enum):
+    OPEN = "OPEN"
+    HOLDING = "HOLDING"
+    CLOSED = "CLOSED"
+
 class ArthurConfig():
     """
     ArthurConfig is a class that holds configuration information on the class Arthur being ran.
@@ -37,7 +43,7 @@ class ArthurConfig():
     """
 
     def __init__(self , base_dir : str , mode : str , vendor : DataVendor , platform : Platform ,registry: dict,  instrument : str,
-                 intake : str , horizon : str , zone : str , threadpool : ThreadPoolExecutor , event : Event) -> None:
+                 intake : str , horizon : str , zone : str , threadpool : ThreadPoolExecutor , state : BusinessState) -> None:
         """
         __init__ initializes ArthurConfig.
         It returns nothing.
@@ -54,7 +60,7 @@ class ArthurConfig():
         horizon : str - Frequency of decision sample
         zone : str - Frequency of horizon samples used to make decision space UxV
         threadpool : ThreadPoolExecutor - Threading Pool for concurrent trading
-        event : Event - Event used to flag stop and start events
+        state : BusinessState - enumerated value for open holding or closed for business
         """
 
         self.base_dir = base_dir 
@@ -67,7 +73,7 @@ class ArthurConfig():
         self.horizon = horizon
         self.zone = zone
         self.threadpool = threadpool 
-        self.stop_event = event
+        self.businessstate = state
 
         ## Requests Session for only one SSCS communication, lowering latency.
         self.session = requests.Session()
@@ -158,7 +164,8 @@ class Arthur():
         """
         
         states = [m.ignition() for m in self.managers]
-        return "OPEN" if all(s == "OPEN" for s in states) else "CLOSED"
+        self.config.businessstate = BusinessState.OPEN if all(s == BusinessState.OPEN for s in states) else BusinessState.CLOSED
+        return self.config.businessstate
     
     def trader_cycle(self , marketfile : str , manager : RiskManager , trader : Trader , kwargs : dict):
         """
@@ -611,9 +618,9 @@ class RiskManager:
         """
         
         if self.in_bhe_hours() and self.in_budget():
-            return "OPEN"
+            return BusinessState.OPEN
         else: 
-            return "CLOSED"
+            return BusinessState.CLOSED
         
         
     def set_trader_team(self , team : list):
