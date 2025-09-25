@@ -179,54 +179,54 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
 
 
         ## Make a JSON of the row to be C, so that finalized matrix has U in CRUD.
-        firstrow["accountID"] = trader.config.platform.accountID
-        firstrow["name"] = trader.name
-        firstrow["riskmanager"] = manager.name
-        firstrow["ts"] = signal["timestamp"].iloc[-1]
-        firstrow["d_int"] = trader.config.intake
-        firstrow["d_hor"] = trader.config.horizon
-        firstrow["d_zone"] = trader.config.zone
-        firstrow["instrument"] = trader.config.instrument
-        firstrow["regime"] = json.dumps(REGIME)
-        firstrow["B"] = signal["B"].iloc[-1]
-        firstrow["S"] = signal["S"].iloc[-1]
-        firstrow["Margin"] = signal["Margin"].iloc[-1]
-        firstrow["Intensity"] = signal["Intensity"].iloc[-1]
-        firstrow["U"] = signal["Theta"].iloc[-1]
-        firstrow["V"] = signal["Mu"].iloc[-1]
+        firstrow["accountID"] = str(trader.config.platform.accountID)
+        firstrow["name"] = str(trader.name)
+        firstrow["riskmanager"] = str(manager.name)
+        firstrow["ts"] = str(signal["timestamp"].iloc[-1])
+        firstrow["d_int"] = str(trader.config.intake)
+        firstrow["d_hor"] = str(trader.config.horizon)
+        firstrow["d_zone"] = int(trader.config.zone)
+        firstrow["instrument"] = str(trader.config.instrument)
+        firstrow["regime"] = str(json.dumps(REGIME))
+        firstrow["B"] = float(signal["B"].iloc[-1])
+        firstrow["S"] = float(signal["S"].iloc[-1])
+        firstrow["Margin"] = float(signal["Margin"].iloc[-1])
+        firstrow["Intensity"] = float(signal["Intensity"].iloc[-1])
+        firstrow["U"] = float(signal["Theta"].iloc[-1])
+        firstrow["V"] = float(signal["Mu"].iloc[-1])
         firstrow["UxV"] = "Theta x Mu" #dynamically pull if more fluid else hardcode
-        firstrow["ActionHat"] = signal["ActionHat"].iloc[-1]
-        firstrow["lotsize_roll"] = lotsize_roll
+        firstrow["ActionHat"] = int(signal["ActionHat"].iloc[-1])
+        firstrow["lotsize_roll"] = float(lotsize_roll)
         firstrow["B_a"] = "NOT MVP" #B_a with dynamic filling later, FOK
         firstrow["S_a"] = "S AMOUNT EXEC % NOT MVP" #S_a with dynamic filling later, FOK
         firstrow["T_a"] = "NOT MVP" #T_a with dynamic filling later, FOK
         firstrow["why_unfill"] = "DICT COUNTS OF WHY UNFILLLED NOT MVP" #why_unfill with dynamic filling later, FOK
-        firstrow["liquidity"] = liquidity
-        firstrow["bid"] = bid
-        firstrow["ask"] = ask
-        firstrow["spread"] = round(ask - bid , 8)
+        firstrow["liquidity"] = int(liquidity)
+        firstrow["bid"] = float(bid)
+        firstrow["ask"] = float(ask)
+        firstrow["spread"] = float(round(float(ask - bid) , 8))
         firstrow["intended"] = ask if signal["ActionHat"].iloc[-1] == 0 else (bid if signal["ActionHat"].iloc[-1] == 1 else 0)
-        firstrow["fill_roll"] = fill_roll
-        firstrow["slip_r_roll"] = fill_roll - firstrow["intended"]
-        firstrow["slip_a_roll"] = np.abs(firstrow["slip_r_roll"])
-        firstrow["slip_pips_roll"] = firstrow["slip_a_roll"] / pip_size(firstrow["instrument"])
-        firstrow["open"] = signal["open"].iloc[-1] # ohlcv needs to be in signal, tune the t 2
-        firstrow["high"] = signal["high"].iloc[-1]
-        firstrow["low"] = signal["low"].iloc[-1] 
-        firstrow["close"] = signal["close"].iloc[-1]
-        firstrow["volume"] = signal["volume"].iloc[-1]
-        firstrow["open_orders"] = open_orders # call pending orders from account but 0 not useful rn
-        firstrow["open_trades"] = open_trades
-        firstrow["p_roll"] = p_roll
-        firstrow["G_roll"] = G_roll
-        firstrow["L_roll"] = L_roll
-        firstrow["N_B"] = num_buy
-        firstrow["N_S"] = num_sell
-        firstrow["N_T"] = firstrow["N_B"] + firstrow["N_S"]
+        firstrow["fill_roll"] = float(fill_roll)
+        firstrow["slip_r_roll"] = float(fill_roll - firstrow["intended"])
+        firstrow["slip_a_roll"] = float(np.abs(firstrow["slip_r_roll"]))
+        firstrow["slip_pips_roll"] = float(firstrow["slip_a_roll"] / pip_size(firstrow["instrument"]))
+        firstrow["open"] = float(signal["open"].iloc[-1]) # ohlcv needs to be in signal, tune the t 2
+        firstrow["high"] = float(signal["high"].iloc[-1])
+        firstrow["low"] = float(signal["low"].iloc[-1])
+        firstrow["close"] = float(signal["close"].iloc[-1])
+        firstrow["volume"] = float(signal["volume"].iloc[-1])
+        firstrow["open_orders"] = int(open_orders) # call pending orders from account but 0 not useful rn
+        firstrow["open_trades"] = int(open_trades)
+        firstrow["p_roll"] = float(p_roll)
+        firstrow["G_roll"] = float(G_roll)
+        firstrow["L_roll"] = float(L_roll)
+        firstrow["N_B"] = int(num_buy)
+        firstrow["N_S"] = int(num_sell)
+        firstrow["N_T"] = int(firstrow["N_B"] + firstrow["N_S"])
         firstrow["C_roll"] = "HIDDEN COSTS BY OANDA NOT MVP" #C_roll for later b/c vendor hide. PnL given
-        firstrow["PnL"] = pnl
+        firstrow["PnL"] = float(pnl)
 
-        full_df = pd.concat([finalized_record , pd.DataFrame(firstrow)] , ignore_index= True)
+        full_df = pd.concat([finalized_record , pd.DataFrame([firstrow])] , ignore_index= True)
 
         return {"finalrecord" : full_df}
     
@@ -359,53 +359,53 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
 
 
         ## Make a JSON of the row to be C, so that finalized matrix has U in CRUD.
-        firstrow["accountID"] = trader.config.platform.accountID
-        firstrow["name"] = trader.name
-        firstrow["riskmanager"] = manager.name
-        firstrow["ts"] = signal["timestamp"].iloc[-1]
-        firstrow["d_int"] = trader.config.intake
-        firstrow["d_hor"] = trader.config.horizon
-        firstrow["d_zone"] = trader.config.zone
-        firstrow["instrument"] = trader.config.instrument
-        firstrow["regime"] = json.dumps(REGIME)
-        firstrow["B"] = signal["B"].iloc[-1]
-        firstrow["S"] = signal["S"].iloc[-1]
-        firstrow["Margin"] = signal["Margin"].iloc[-1]
-        firstrow["Intensity"] = signal["Intensity"].iloc[-1]
-        firstrow["U"] = signal["Theta"].iloc[-1]
-        firstrow["V"] = signal["Mu"].iloc[-1]
+        firstrow["accountID"] = str(trader.config.platform.accountID)
+        firstrow["name"] = str(trader.name)
+        firstrow["riskmanager"] = str(manager.name)
+        firstrow["ts"] = str(signal["timestamp"].iloc[-1])
+        firstrow["d_int"] = str(trader.config.intake)
+        firstrow["d_hor"] = str(trader.config.horizon)
+        firstrow["d_zone"] = int(trader.config.zone)
+        firstrow["instrument"] = str(trader.config.instrument)
+        firstrow["regime"] = str(json.dumps(REGIME))
+        firstrow["B"] = float(signal["B"].iloc[-1])
+        firstrow["S"] = float(signal["S"].iloc[-1])
+        firstrow["Margin"] = float(signal["Margin"].iloc[-1])
+        firstrow["Intensity"] = float(signal["Intensity"].iloc[-1])
+        firstrow["U"] = float(signal["Theta"].iloc[-1])
+        firstrow["V"] = float(signal["Mu"].iloc[-1])
         firstrow["UxV"] = "Theta x Mu" #dynamically pull if more fluid else hardcode
-        firstrow["ActionHat"] = signal["ActionHat"].iloc[-1]
-        firstrow["lotsize_roll"] = lotsize_roll
+        firstrow["ActionHat"] = int(signal["ActionHat"].iloc[-1])
+        firstrow["lotsize_roll"] = float(lotsize_roll)
         firstrow["B_a"] = "NOT MVP" #B_a with dynamic filling later, FOK
         firstrow["S_a"] = "S AMOUNT EXEC % NOT MVP" #S_a with dynamic filling later, FOK
         firstrow["T_a"] = "NOT MVP" #T_a with dynamic filling later, FOK
         firstrow["why_unfill"] = "DICT COUNTS OF WHY UNFILLLED NOT MVP" #why_unfill with dynamic filling later, FOK
-        firstrow["liquidity"] = liquidity
-        firstrow["bid"] = bid
-        firstrow["ask"] = ask
-        firstrow["spread"] = round(ask - bid , 8)
+        firstrow["liquidity"] = int(liquidity)
+        firstrow["bid"] = float(bid)
+        firstrow["ask"] = float(ask)
+        firstrow["spread"] = float(round(float(ask - bid) , 8))
         firstrow["intended"] = ask if signal["ActionHat"].iloc[-1] == 0 else (bid if signal["ActionHat"].iloc[-1] == 1 else 0)
-        firstrow["fill_roll"] = fill_roll
-        firstrow["slip_r_roll"] = fill_roll - firstrow["intended"]
-        firstrow["slip_a_roll"] = np.abs(firstrow["slip_r_roll"])
-        firstrow["slip_pips_roll"] = firstrow["slip_a_roll"] / pip_size(firstrow["instrument"])
-        firstrow["open"] = signal["open"].iloc[-1] # ohlcv needs to be in signal, tune the t 2
-        firstrow["high"] = signal["high"].iloc[-1]
-        firstrow["low"] = signal["low"].iloc[-1] 
-        firstrow["close"] = signal["close"].iloc[-1]
-        firstrow["volume"] = signal["volume"].iloc[-1]
-        firstrow["open_orders"] = open_orders # call pending orders from account but 0 not useful rn
-        firstrow["open_trades"] = open_trades
-        firstrow["p_roll"] = p_roll
-        firstrow["G_roll"] = G_roll
-        firstrow["L_roll"] = L_roll
-        firstrow["N_B"] = num_buy
-        firstrow["N_S"] = num_sell
-        firstrow["N_T"] = firstrow["N_B"] + firstrow["N_S"]
+        firstrow["fill_roll"] = float(fill_roll)
+        firstrow["slip_r_roll"] = float(fill_roll - firstrow["intended"])
+        firstrow["slip_a_roll"] = float(np.abs(firstrow["slip_r_roll"]))
+        firstrow["slip_pips_roll"] = float(firstrow["slip_a_roll"] / pip_size(firstrow["instrument"]))
+        firstrow["open"] = float(signal["open"].iloc[-1]) # ohlcv needs to be in signal, tune the t 2
+        firstrow["high"] = float(signal["high"].iloc[-1])
+        firstrow["low"] = float(signal["low"].iloc[-1])
+        firstrow["close"] = float(signal["close"].iloc[-1])
+        firstrow["volume"] = float(signal["volume"].iloc[-1])
+        firstrow["open_orders"] = int(open_orders) # call pending orders from account but 0 not useful rn
+        firstrow["open_trades"] = int(open_trades)
+        firstrow["p_roll"] = float(p_roll)
+        firstrow["G_roll"] = float(G_roll)
+        firstrow["L_roll"] = float(L_roll)
+        firstrow["N_B"] = int(num_buy)
+        firstrow["N_S"] = int(num_sell)
+        firstrow["N_T"] = int(firstrow["N_B"] + firstrow["N_S"])
         firstrow["C_roll"] = "HIDDEN COSTS BY OANDA NOT MVP" #C_roll for later b/c vendor hide. PnL given
-        firstrow["PnL"] = pnl
+        firstrow["PnL"] = float(pnl)
 
-        full_df = pd.concat([finalized_record , pd.DataFrame(firstrow)] , ignore_index= True)
+        full_df = pd.concat([finalized_record , pd.DataFrame([firstrow])] , ignore_index= True)
 
         return {"finalrecord" : full_df}
