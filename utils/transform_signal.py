@@ -79,7 +79,7 @@ def convert_timestamp(ts_str: str):
     ts_str : str - the timestamp string
     """
 
-    dt = datetime.strptime(ts_str, "%Y-%m-%dT%H:%M:%S.%f000Z")
+    dt = pd.to_datetime(ts_str)
     return dt.hour * 3600 + dt.minute * 60 + dt.second
 
 
@@ -165,6 +165,10 @@ def transform_to_signal(filename: str , zone : int):
         proto_signal["Y"] = Y_orth
 
    
+    ## Truncate X and Y similarly
+    proto_signal["X"] = proto_signal["X"].round(RFIGS)
+    proto_signal["Y"] = proto_signal["Y"].round(RFIGS)
+
     ##  zij are weights for buying and selling on i, X and Y on j.
     ## zij > 0 for Buy and zij < 0 for Sell
     proto_signal["z11"] = proto_signal["X"]

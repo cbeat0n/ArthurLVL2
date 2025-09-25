@@ -7,7 +7,8 @@
 ## External Dependencies
 from __future__ import annotations
 import requests
-from datetime import datetime , time
+from datetime import datetime 
+from datetime import time as dt_time
 from zoneinfo import ZoneInfo 
 import os
 import pandas as pd
@@ -18,8 +19,8 @@ import time
 ## Internal Dependencies
 from utils.generic import fetch_candles
 from utils.generic import convert_to_tabular , clean_tabular
-from utils.generic import get_today_folder , load_cleaned_data
-from utils.generic import acquire_proto_signal , decisionrule , transform_to_signal
+from utils.generic import load_cleaned_data
+from utils.generic import decisionrule , transform_to_signal
 from utils.generic import load_signal_matrix
 
 from utils.generic import extract_signal_matrix , extract_final_matrix
@@ -122,6 +123,10 @@ class Arthur():
                     f"T{trader_idx}",
                     manager , 
                     manager.config)
+                trader.set_trader_account("101-001-37152677-001") 
+                trader.config.platform.set_accountID("101-001-37152677-001")
+                # HARDCODED ACCOUNTID FOR NOW, ONLY 1
+                # TRADER BECAUSE ONLY ONE ACCOUNT ID RIGHT NOW. THIS IS A BRYAN QUESTION.
 
                 team.append(trader)
                 
@@ -174,11 +179,11 @@ class Arthur():
         decision = trader.decision_loop(manager, market) # {"action" : action , "status" : status}
 
         ## Every horizon: observe , measure , decide , act , then record. (OODA with logging)
-        logs = extract_final_matrix(self.base_dir, trader) # A Trader records his results every cycle
+        logs = extract_final_matrix(self.config.base_dir, trader) # A Trader records his results every cycle
         if logs["exists"]:
-            final_matrix = finalize_records(market, trader, record=logs["final"], **kwargs)
+            final_matrix = finalize_records(market, trader,manager ,  record=logs["final"], **kwargs)
         else:
-            final_matrix = finalize_records(market, trader, **kwargs)
+            final_matrix = finalize_records(market, trader, manager ,  **kwargs)
 
         load_final_data(final_matrix, logs["file"]) # CRUD for final records
         
@@ -197,11 +202,13 @@ class Arthur():
 
         ## E1
         ## {"candles" : candles , "instrument" : instrument, "intake" : intake}
-        candlebody = fetch_candles(self.config.instrument, self.config.intake)
+        candlebody = fetch_candles(self.config.mode , 
+            self.config.vendor, self.config.platform , instrument = self.config.instrument, intake = self.config.intake,
+            price = 'M' , count = 3600 , timezone = 'UTC') # hardcoded count right now
 
         ## T1
         ## Tabular list and then {"cleaned" : cleaned , "safe_ts" : safe_ts}
-        tabular_data = convert_to_tabular(candlebody["candles"])
+        tabular_data = convert_to_tabular(candlebody)
         cleaned_tabular = clean_tabular(tabular_data , self.config.horizon)
 
         ## L1
@@ -296,7 +303,7 @@ class Arthur():
 
         
         for trader in traders: # HTTP request construction
-            summary_url = trader.platform.make_url(trader.mode , "account" , 2)
+            summary_url = trader.config.platform.make_url(trader.config.mode , "account" , 2)
 
             response = self.config.session.get(url = summary_url)
 
@@ -575,11 +582,13 @@ class RiskManager:
         """
 
         chi = ZoneInfo("America/Chicago")
-        start = time(6, 55)   # 06:55 AM CST/CDT
-        end   = time(15, 0)   # 03:00 PM CST/CDT
+        start = dt_time(6, 55)   # 06:55 AM CST/CDT
+        end = dt_time(20,0) # boot myself off mvp dev by 8
+        
+        #end   = dt_time(15, 0)   # 03:00 PM CST/CDT
 
         now_local = datetime.now(chi)
-        
+
         ## Weekend: Saturday=5, Sunday=6
         
         if now_local.weekday() >= 5:
@@ -760,8 +769,8 @@ class OandaTrading(Platform):
                    "/v3/accounts/{accountID}/instruments/{instrument}/candles"]
         
         self.base = {
-            "demo" : demo_base,
-            "live" : live_base
+            "Demo" : demo_base,
+            "Live" : live_base
         }
 
         self.endpoints = {

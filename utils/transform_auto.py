@@ -9,9 +9,8 @@ import requests # Library for HTTP requests
 from datetime import datetime , timezone # Library for time objects 
 
 ## Internal Dependencies
-from utils.generic import Trader , RiskManager # Non circular import for generic placeholders
 from utils.transform_signal import REGIME 
-from verificationlearning.historicaldataverification import pip_size
+from weeklybacktesting.backtestingprocess import pip_size
 
 ## Columns inside the finalized matrix.
 COLS = ["accountID","name" ,"riskmanager","ts", "d_int" , "d_hor" , "d_zone", "instrument" ,"regime" , "B", "S" ,"Margin","Intensity", "U" , "V" , "UxV", 
@@ -22,7 +21,7 @@ COLS = ["accountID","name" ,"riskmanager","ts", "d_int" , "d_hor" , "d_zone", "i
 
 
 
-def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskManager,  * , record = None , **kwargs):
+def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None , **kwargs):
     """
     finalize_records takes a variety of inputs performs proprietary ETL on the information presented by the 
     vendor ( or platform for MVP ). It simulates a sample measurement after every OODA LOOP trade.
@@ -63,8 +62,8 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         midnight_utc_today = datetime(year=now.year, month=now.month, day=now.day, tzinfo=timezone.utc)
         
         ## Find the orders and trades for today for the trader in question
-        today_orders = trader.platform.make_url(trader.mode , used_endpoints["t_o_e"] , used_endpoints["t_o_s"] , accountID = trader.platform.accountID)
-        today_trades = trader.platform.make_url(trader.mode , used_endpoints["t_t_e"] , used_endpoints["t_t_s"] , accountID = trader.platform.accountID)
+        today_orders = trader.config.platform.make_url(trader.config.mode , used_endpoints["t_o_e"] , used_endpoints["t_o_s"] , accountID = trader.config.platform.accountID)
+        today_trades = trader.config.platform.make_url(trader.config.mode , used_endpoints["t_t_e"] , used_endpoints["t_t_s"] , accountID = trader.config.platform.accountID)
 
         ## Find the orders that are filled
         today_f_orders = trader.config.session.get(url = today_orders , params = {"state" : "FILLED" , "count" : 200})
@@ -84,9 +83,9 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
 
 
         ## Find pricing information on the instrument from vendor , currently platform because OANDA.
-        pricing_url = trader.platform.make_url(trader.mode, used_endpoints["pricing"] , used_endpoints["pricing_sub"] , accountID = trader.platform.accountID)
+        pricing_url = trader.config.platform.make_url(trader.config.mode, used_endpoints["pricing"] , used_endpoints["pricing_sub"] , accountID = trader.config.platform.accountID)
 
-        pricing = trader.config.session.get(url = pricing_url, params = {"instruments" : trader.instrument})
+        pricing = trader.config.session.get(url = pricing_url, params = {"instruments" : trader.config.instrument})
 
         if pricing.status_code == 200:
             pricing = pricing.json()["prices"]
@@ -94,7 +93,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
             raise ValueError(f"Error {pricing.status_code}: {pricing.text}")
         
         ## Find account information on the trader in question.
-        account_url = trader.platform.make_url(trader.mode , used_endpoints["acc_e"] , used_endpoints["acc_s"] , accountID = trader.platform.accountID)
+        account_url = trader.config.platform.make_url(trader.config.mode , used_endpoints["acc_e"] , used_endpoints["acc_s"] , accountID = trader.config.platform.accountID)
 
         account = trader.config.session.get(url = account_url)
 
@@ -105,13 +104,13 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
 
 
         ## Find transactions today for codes for ETL
-        transaction_url = trader.platform.make_url(trader.mode , used_endpoints["transaction_e"] , used_endpoints["transaction_s"] , accountID = trader.platform.accountID)
+        transaction_url = trader.config.platform.make_url(trader.config.mode , used_endpoints["transaction_e"] , used_endpoints["transaction_s"] , accountID = trader.config.platform.accountID)
 
         transaction_body = trader.config.session.get(url = transaction_url , params = {"from" : midnight_utc_today.strftime("%Y-%m-%dT%H:%M:%SZ") , "to" : datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                       , "type" : "ORDER_FILL"})
 
         if transaction_body.status_code == 200:
-            pages_url = transaction_body.json()["pages"][-1]
+            pages_url = transaction_body.json()["pages"]
         else:
             raise ValueError(f"Error {transaction_body.status_code}: {transaction_body.text}")
         
@@ -125,7 +124,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
 
         ## Intermediary calculations
         lotsize_roll = np.median([abs(int(t["units"]))
-                for t in today_f_orders if t["instrument"] ==  trader.instrument
+                for t in today_f_orders if t["instrument"] ==  trader.config.instrument
                 and t["createTime"][0:10] == signal["timestamp"][0][0:10]]) if any(today_f_orders) else 0.0 # closed only
 
         
@@ -134,7 +133,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         bid = float(pricing[0]["bids"][0]["price"])
         ask = float(pricing[0]["asks"][0]["price"])
 
-        fills = [float(order["price"]) for order in order_fills if order["instrument"] == trader.instrument ]
+        fills = [float(order["price"]) for order in order_fills if order["instrument"] == trader.config.instrument]
         fill_roll = np.median(fills) if any(fills) else 0.0
 
 
@@ -155,21 +154,21 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         open_orders = account["pendingOrderCount"]
         open_trades = account["openTradeCount"]
         
-        fxidx = [p["instrument"] for p in account["positions"]].index(trader.instrument)
+        fxidx = [p["instrument"] for p in account["positions"]].index(trader.config.instrument)
         
-        pnl = float(account["positions"][fxidx][trader.instrument]["pl"]) + float(account["positions"][fxidx][trader.instrument]["unrealizedPL"])
+        pnl = float(account["positions"][fxidx][trader.config.instrument]["pl"]) + float(account["positions"][fxidx][trader.config.instrument]["unrealizedPL"])
 
 
 
         ## Make a JSON of the row to be C, so that finalized matrix has U in CRUD.
-        firstrow["accountID"] = trader.platform.accountID
+        firstrow["accountID"] = trader.config.platform.accountID
         firstrow["name"] = trader.name
         firstrow["riskmanager"] = manager.name
         firstrow["ts"] = signal["timestamp"].iloc[-1]
-        firstrow["d_int"] = trader.intakeGranularity
-        firstrow["d_hor"] = trader.horizonGranularity
+        firstrow["d_int"] = trader.config.intake
+        firstrow["d_hor"] = trader.config.horizon
         firstrow["d_zone"] = trader.config.zone
-        firstrow["instrument"] = trader.instrument
+        firstrow["instrument"] = trader.config.instrument
         firstrow["regime"] = REGIME
         firstrow["B"] = signal["B"]
         firstrow["S"] = signal["S"]
@@ -226,8 +225,8 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         midnight_utc_today = datetime(year=now.year, month=now.month, day=now.day, tzinfo=timezone.utc)
         
         ## Find the orders and trades for today for the trader in question
-        today_orders = trader.platform.make_url(trader.mode , used_endpoints["t_o_e"] , used_endpoints["t_o_s"] , accountID = trader.platform.accountID)
-        today_trades = trader.platform.make_url(trader.mode , used_endpoints["t_t_e"] , used_endpoints["t_t_s"] , accountID = trader.platform.accountID)
+        today_orders = trader.config.platform.make_url(trader.config.mode , used_endpoints["t_o_e"] , used_endpoints["t_o_s"] , accountID = trader.config.platform.accountID)
+        today_trades = trader.config.platform.make_url(trader.config.mode , used_endpoints["t_t_e"] , used_endpoints["t_t_s"] , accountID = trader.config.platform.accountID)
 
         ## Find the orders that are filled
         today_f_orders = trader.config.session.get(url = today_orders , params = {"state" : "FILLED" , "count" : 200})
@@ -247,9 +246,9 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
 
 
         ## Find pricing information on the instrument from vendor , currently platform because OANDA.
-        pricing_url = trader.platform.make_url(trader.mode, used_endpoints["pricing"] , used_endpoints["pricing_sub"] , accountID = trader.platform.accountID)
+        pricing_url = trader.config.platform.make_url(trader.config.mode, used_endpoints["pricing"] , used_endpoints["pricing_sub"] , accountID = trader.config.platform.accountID)
 
-        pricing = trader.config.session.get(url = pricing_url, params = {"instruments" : trader.instrument})
+        pricing = trader.config.session.get(url = pricing_url, params = {"instruments" : trader.config.instrument})
 
         if pricing.status_code == 200:
             pricing = pricing.json()["prices"]
@@ -257,7 +256,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
             raise ValueError(f"Error {pricing.status_code}: {pricing.text}")
         
         ## Find account information on the trader in question.
-        account_url = trader.platform.make_url(trader.mode , used_endpoints["acc_e"] , used_endpoints["acc_s"] , accountID = trader.platform.accountID)
+        account_url = trader.config.platform.make_url(trader.config.mode , used_endpoints["acc_e"] , used_endpoints["acc_s"] , accountID = trader.config.platform.accountID)
 
         account = trader.config.session.get(url = account_url)
 
@@ -268,16 +267,17 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
 
 
         ## Find transactions today for codes for ETL
-        transaction_url = trader.platform.make_url(trader.mode , used_endpoints["transaction_e"] , used_endpoints["transaction_s"] , accountID = trader.platform.accountID)
+        transaction_url = trader.config.platform.make_url(trader.config.mode , used_endpoints["transaction_e"] , used_endpoints["transaction_s"] , accountID = trader.config.platform.accountID)
 
         transaction_body = trader.config.session.get(url = transaction_url , params = {"from" : midnight_utc_today.strftime("%Y-%m-%dT%H:%M:%SZ") , "to" : datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                       , "type" : "ORDER_FILL"})
 
         if transaction_body.status_code == 200:
-            pages_url = transaction_body.json()["pages"][-1]
+            pages_url = transaction_body.json()["pages"]
         else:
             raise ValueError(f"Error {transaction_body.status_code}: {transaction_body.text}")
         
+
         range_transactions = trader.config.session.get(url = pages_url)
 
         if range_transactions.status_code == 200:
@@ -285,10 +285,9 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         else:
             raise ValueError(f"Error {range_transactions.status_code}: {range_transactions.text}")
 
-
         ## Intermediary calculations
         lotsize_roll = np.median([abs(int(t["units"]))
-                for t in today_f_orders if t["instrument"] ==  trader.instrument
+                for t in today_f_orders if t["instrument"] ==  trader.config.instrument
                 and t["createTime"][0:10] == signal["timestamp"][0][0:10]]) if any(today_f_orders) else 0.0 # closed only
 
         
@@ -297,7 +296,7 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         bid = float(pricing[0]["bids"][0]["price"])
         ask = float(pricing[0]["asks"][0]["price"])
 
-        fills = [float(order["price"]) for order in order_fills if order["instrument"] == trader.instrument ]
+        fills = [float(order["price"]) for order in order_fills if order["instrument"] == trader.config.instrument]
         fill_roll = np.median(fills) if any(fills) else 0.0
 
 
@@ -318,21 +317,21 @@ def finalize_records(signal : pd.DataFrame , trader : Trader , manager : RiskMan
         open_orders = account["pendingOrderCount"]
         open_trades = account["openTradeCount"]
         
-        fxidx = [p["instrument"] for p in account["positions"]].index(trader.instrument)
+        fxidx = [p["instrument"] for p in account["positions"]].index(trader.config.instrument)
         
-        pnl = float(account["positions"][fxidx][trader.instrument]["pl"]) + float(account["positions"][fxidx][trader.instrument]["unrealizedPL"])
+        pnl = float(account["positions"][fxidx][trader.config.instrument]["pl"]) + float(account["positions"][fxidx][trader.config.instrument]["unrealizedPL"])
 
 
 
         ## Make a JSON of the row to be C, so that finalized matrix has U in CRUD.
-        firstrow["accountID"] = trader.platform.accountID
+        firstrow["accountID"] = trader.config.platform.accountID
         firstrow["name"] = trader.name
         firstrow["riskmanager"] = manager.name
         firstrow["ts"] = signal["timestamp"].iloc[-1]
-        firstrow["d_int"] = trader.intakeGranularity
-        firstrow["d_hor"] = trader.horizonGranularity
+        firstrow["d_int"] = trader.config.intake
+        firstrow["d_hor"] = trader.config.horizon
         firstrow["d_zone"] = trader.config.zone
-        firstrow["instrument"] = trader.instrument
+        firstrow["instrument"] = trader.config.instrument
         firstrow["regime"] = REGIME
         firstrow["B"] = signal["B"]
         firstrow["S"] = signal["S"]

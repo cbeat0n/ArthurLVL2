@@ -7,8 +7,6 @@ from datetime import datetime , timezone # Library for time objects
 import numpy as np # Library for numerical calculations
 import os # Library for operating system communications
 
-## Internal Dependencies
-from utils.generic import Trader # Non circular import for generic placeholders
 
 
 
@@ -26,7 +24,7 @@ def extract_signal_matrix(signal_file : str):
     return {"signal" : signal}
 
 
-def extract_final_matrix(base_dir , trader : Trader):
+def extract_final_matrix(base_dir , trader):
     """
     extract_final_matrix is a neither feed forward nor feed backward extraction function
     that makes a JSON on the existence of the finalized matrix for a given trader , instrument , 
@@ -39,7 +37,7 @@ def extract_final_matrix(base_dir , trader : Trader):
     """
     
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    end_dir = f"final/{today}/finalized_data_{trader.name}_{trader.instrument}.csv"
+    end_dir = f"final/{today}/finalized_data_{trader.name}_{trader.config.instrument}.csv"
     full_path = os.path.join(base_dir , end_dir)
 
     ## Make the directory if it doesn't exist

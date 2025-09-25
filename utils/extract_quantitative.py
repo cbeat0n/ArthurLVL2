@@ -6,11 +6,9 @@
 ## External Dependencies
 import requests # Library for HTTP requests
 
-## Internal Dependencies
-from utils.generic import DataVendor , Platform # Non circular import for generic placeholders
 
 
-def fetch_candles(mode : str , vendor : DataVendor , platform : Platform , instrument="USD_JPY", intake="S5", count=3600, price="M", timezone="UTC"):
+def fetch_candles(mode : str , vendor , platform, instrument="USD_JPY", intake="S5", count=3600, price="M", timezone="UTC"):
     """
     fetch_candles fetches the candles for the horizon at intake.
     It returns either a JSON with the candlebody or the ValueError.
@@ -32,7 +30,7 @@ def fetch_candles(mode : str , vendor : DataVendor , platform : Platform , instr
 
     params = {"granularity" : intake,"count" : count,"price" : price,"alignmentTimezone" : timezone}
 
-    response = platform.config.session.get(url, params=params) # HTTP Request from url , headers , params
+    response = platform.config.session.get(url = url, params=params) # HTTP Request from url , headers , params
 
     if response.status_code == 200: # Error handling
         return {"candles" : response.json().get("candles" , []) , "instrument" : instrument , "intake" : intake}

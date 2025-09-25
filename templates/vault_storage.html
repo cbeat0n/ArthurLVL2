@@ -7,6 +7,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vaultshine.css') }}">
   <title>Arthur | Vault Storage</title>
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script> 
   <!-- Static version, watch this parameter-->
@@ -18,7 +19,7 @@
       <div class="muted">Instrument: <strong>{{ instrument|default('—') }}</strong> • Horizon: <strong>{{ refreshRate|default('—') }}</strong></div>
     </div>
     <div class="row">
-      <a class="btn" href="/visualize/?signalFile={{ signalFile|default('') }}&instrument={{ instrument|default('') }}&horizon={{ refreshRate|default('') }}&zone={{ zone|default('') }}">Open Market View</a>
+      <a class="btn" target = '_blank' href="/visualize/?signalFile={{ signalFile|default('') }}&instrument={{ instrument|default('') }}&horizon={{ refreshRate|default('') }}&zone={{ zone|default('') }}">Open Market View</a>
     </div>
   </header>
   <main>
@@ -42,10 +43,12 @@
   <script>
     // Auto-refresh based on refreshRate seconds (if numeric)
     (function () {
-      var rr = "{{ refreshRate|default('') }}";
-      var sec = parseInt(rr, 10);
-      if (!isNaN(sec) && sec > 0) {
-        setInterval(function(){ location.reload(); }, sec * 1000);
+
+      const granularityMap = { M1: 60000 , M2 : 120000 , M4 : 240000 , M5 : 300000 , M10 : 600000 };
+      const rr = granularityMap["{{ refreshRate }}"];
+
+      if (!isNaN(rr) && rr > 0) {
+        setInterval(function(){ location.reload(); }, rr);
       }
     })();
 

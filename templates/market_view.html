@@ -8,6 +8,7 @@ refresh at the rate of the granularity chosen whether this is S5 or something el
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <link rel="stylesheet" href="{{ url_for('static', filename='overhang.css') }}">
   <title>Arthur | Market View - {{ instrument }}</title>
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script> 
   <!-- Static version, watch this parameter-->
@@ -15,7 +16,7 @@ refresh at the rate of the granularity chosen whether this is S5 or something el
   <script>
     // Auto refresh based on granularity (e.g. M1 = 60000ms)
     const granularityMap = { M1: 60000 , M2 : 120000 , M4 : 240000 , M5 : 300000 , M10 : 600000 };
-    const refreshRate = granularityMap["{{ granularity }}"] + 1250; // fallback 30s
+    const refreshRate = granularityMap[horizon] + 1250;
     setTimeout(() => { location.reload(); }, refreshRate);
   </script>
 
@@ -53,7 +54,6 @@ refresh at the rate of the granularity chosen whether this is S5 or something el
 
   <script>
     const signalData = JSON.parse(document.getElementById("signal-data").textContent);
-
     // Extract series
     const raw_timestamps = signalData.map(d => d.timestamp); // Raw TS
 
@@ -95,12 +95,12 @@ refresh at the rate of the granularity chosen whether this is S5 or something el
 
     // Dynamical space: (B,S)
     Plotly.newPlot('plot-BS-space', [{
-      x: B, y: S, mode: 'markers+lines', name: '(B,S)', marker: { color: 'orange', size: 6 }
+      x: B, y: S, mode: 'markers', name: '(B,S)', marker: { color: 'orange', size: 6 }
     }], { title: '(B,S) Space', xaxis: { title: 'B' }, yaxis: { title: 'S' } });
 
     // Dynamical space: (Theta, Mu)
     Plotly.newPlot('plot-UV-space', [{
-      x: theta, y: mu, mode: 'markers+lines', name: '(Theta, Mu)', marker: { color: 'teal', size: 6 }
+      x: theta, y: mu, mode: 'markers', name: '(theta,mu)', marker: { color: 'teal', size: 6 }
     }], { title: '(Theta, Mu) Space', xaxis: { title: 'Theta' }, yaxis: { title: 'Mu' } });
   </script>
 </body>

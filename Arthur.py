@@ -28,11 +28,13 @@ load_dotenv()
 
 ## Initialize Flask App and globally hardcoded parameters.
 ArthurFlask = Flask(__name__)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),"data")
 REGISTRY = {"vendor" : None , "platform" : os.getenv("OANDADEMOAPIKEY")} # Can keep .env separate
 VENDOR = DataVendor() # Blank because MVP uses Oanda
-EVENT = Event()
+EVENT = Event() # Currently MVP does not flag for "HOLDING" with ignition. Leave.
 
+## Counter sets Arthur up once
+MARKET_CYCLES = 0
 
 
 
@@ -60,11 +62,10 @@ def enter_vault():
     Inputs:
     None
     """
+    global MARKET_CYCLES , BASE_DIR , VENDOR , REGISTRY
 
-        
-    
-    if config is None: # If not configured, make it so. Otherwise, pull.
-        # Only pull request.args collection once for latency saving.
+
+    if MARKET_CYCLES == 0:
 
         instrument = request.args.get("currencyPair", "USD_JPY")
         intake = request.args.get("intake", "S5")
@@ -93,6 +94,7 @@ def enter_vault():
         
         ## Make Platform & Arthur Instance
         platform.set_config(config)
+        platform.set_instrument(instrument) # Hardcoded instrument
         ArthurInstance = Arthur(cfg = config , teamstructure = {"managers" : managers , "traders" : traders})
 
     ## Accounting Information
@@ -106,11 +108,14 @@ def enter_vault():
     
     if ignition_center == "OPEN":
         ArthurInstance._market_cycle(marketfile=signal_filename)
+        MARKET_CYCLES += 1
     else:
         ArthurInstance.shutdown()
         print("Trading out of bounds for current business operations.")
         print("Check logs for information.")
-        requests.post("http://127.0.0.1:5000/shutdownserver")
+        MARKET_CYCLES = 0
+        raise SystemExit(0)
+        #requests.post("http://127.0.0.1:5000/shutdownserver")
 
     return render_template("vault_storage.html", 
                            accountSummary = account_summary,
@@ -166,8 +171,13 @@ def shut_down_server():
     
     return "Server shutting down..."  # Smooth shutdown
 
-## Debug = True for BASH logging
+## Werkzeug for debugging
 if __name__ == "__main__":
-    ArthurFlask.run(debug=True)
+    ArthurFlask.run(debug=False)
+
+## Waitress for Production -> Move to Gunicorn and Docker for full multiple computers
+#if __name__ == "__main__":
+#    from waitress import serve
+#    serve(ArthurFlask, host="0.0.0.0", port=5000)
 
 

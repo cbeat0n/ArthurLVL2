@@ -59,8 +59,3 @@ h1 {
   max-width: 900px;
 }
 
-/* Plots take full width of container */
-.plot-container > div {
-  width: 100% !important;
-  height: 100% !important;
-}
