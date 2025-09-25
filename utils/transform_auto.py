@@ -55,7 +55,7 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
 
         firstrow = {column : None for column in COLS}
 
-        ## Current UTC
+         ## Current UTC
         now = datetime.now(timezone.utc)
 
         ## Midnight UTC today
@@ -187,14 +187,14 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
         firstrow["d_zone"] = trader.config.zone
         firstrow["instrument"] = trader.config.instrument
         firstrow["regime"] = REGIME
-        firstrow["B"] = signal["B"]
-        firstrow["S"] = signal["S"]
-        firstrow["Margin"] = signal["Margin"]
-        firstrow["Intensity"] = signal["Intensity"]
-        firstrow["U"] = signal["Theta"]
-        firstrow["V"] = signal["Mu"]
+        firstrow["B"] = signal["B"].iloc[-1]
+        firstrow["S"] = signal["S"].iloc[-1]
+        firstrow["Margin"] = signal["Margin"].iloc[-1]
+        firstrow["Intensity"] = signal["Intensity"].iloc[-1]
+        firstrow["U"] = signal["Theta"].iloc[-1]
+        firstrow["V"] = signal["Mu"].iloc[-1]
         firstrow["UxV"] = "Theta x Mu" #dynamically pull if more fluid else hardcode
-        firstrow["ActionHat"] = signal["ActionHat"]
+        firstrow["ActionHat"] = signal["ActionHat"].iloc[-1]
         firstrow["lotsize_roll"] = lotsize_roll
         firstrow["B_a"] = None #B_a with dynamic filling later, FOK
         firstrow["S_a"] = None #S_a with dynamic filling later, FOK
@@ -203,17 +203,17 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
         firstrow["liquidity"] = liquidity
         firstrow["bid"] = bid
         firstrow["ask"] = ask
-        firstrow["spread"] = ask - bid
+        firstrow["spread"] = round(ask - bid , 8)
         firstrow["intended"] = ask if signal["ActionHat"].iloc[-1] == 0 else (bid if signal["ActionHat"].iloc[-1] == 1 else 0)
         firstrow["fill_roll"] = fill_roll
         firstrow["slip_r_roll"] = fill_roll - firstrow["intended"]
         firstrow["slip_a_roll"] = np.abs(firstrow["slip_r_roll"])
         firstrow["slip_pips_roll"] = firstrow["slip_a_roll"] / pip_size(firstrow["instrument"])
-        firstrow["open"] = signal["open"] # ohlcv needs to be in signal, tune the t 2
-        firstrow["high"] = signal["high"]
-        firstrow["low"] = signal["low"] 
-        firstrow["close"] = signal["close"]
-        firstrow["volume"] = signal["volume"]
+        firstrow["open"] = signal["open"].iloc[-1] # ohlcv needs to be in signal, tune the t 2
+        firstrow["high"] = signal["high"].iloc[-1]
+        firstrow["low"] = signal["low"].iloc[-1] 
+        firstrow["close"] = signal["close"].iloc[-1]
+        firstrow["volume"] = signal["volume"].iloc[-1]
         firstrow["open_orders"] = open_orders # call pending orders from account but 0 not useful rn
         firstrow["open_trades"] = open_trades
         firstrow["p_roll"] = p_roll
@@ -225,9 +225,10 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
         firstrow["C_roll"] = None #C_roll for later b/c vendor hide. PnL given
         firstrow["PnL"] = pnl
 
-        finalized_record.loc[len(finalized_record)] = firstrow
+        
+        full_df = pd.concat([finalized_record , pd.DataFrame(firstrow)] , ignore_index= True)
 
-        return {"finalrecord" : finalized_record}
+        return {"finalrecord" : full_df}
     
     elif isinstance(record, pd.DataFrame) and not record.empty:
         
@@ -367,33 +368,33 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
         firstrow["d_zone"] = trader.config.zone
         firstrow["instrument"] = trader.config.instrument
         firstrow["regime"] = REGIME
-        firstrow["B"] = signal["B"][-1]
-        firstrow["S"] = signal["S"][-1]
-        firstrow["Margin"] = signal["Margin"][-1]
-        firstrow["Intensity"] = signal["Intensity"][-1]
-        firstrow["U"] = signal["Theta"][-1]
-        firstrow["V"] = signal["Mu"][-1]
+        firstrow["B"] = signal["B"].iloc[-1]
+        firstrow["S"] = signal["S"].iloc[-1]
+        firstrow["Margin"] = signal["Margin"].iloc[-1]
+        firstrow["Intensity"] = signal["Intensity"].iloc[-1]
+        firstrow["U"] = signal["Theta"].iloc[-1]
+        firstrow["V"] = signal["Mu"].iloc[-1]
         firstrow["UxV"] = "Theta x Mu" #dynamically pull if more fluid else hardcode
-        firstrow["ActionHat"] = signal["ActionHat"][-1]
+        firstrow["ActionHat"] = signal["ActionHat"].iloc[-1]
         firstrow["lotsize_roll"] = lotsize_roll
-        firstrow["B_a"] = None #B_a with dynamic filling later, FOK
-        firstrow["S_a"] = None #S_a with dynamic filling later, FOK
-        firstrow["T_a"] = None #T_a with dynamic filling later, FOK
-        firstrow["why_unfill"] = None #why_unfill with dynamic filling later, FOK
+        firstrow["B_a"] = "NOT MVP" #B_a with dynamic filling later, FOK
+        firstrow["S_a"] = "S AMOUNT EXEC % NOT MVP" #S_a with dynamic filling later, FOK
+        firstrow["T_a"] = "NOT MVP" #T_a with dynamic filling later, FOK
+        firstrow["why_unfill"] = "DICT COUNTS OF WHY UNFILLLED NOT MVP" #why_unfill with dynamic filling later, FOK
         firstrow["liquidity"] = liquidity
         firstrow["bid"] = bid
         firstrow["ask"] = ask
-        firstrow["spread"] = ask - bid
+        firstrow["spread"] = round(ask - bid , 8)
         firstrow["intended"] = ask if signal["ActionHat"].iloc[-1] == 0 else (bid if signal["ActionHat"].iloc[-1] == 1 else 0)
         firstrow["fill_roll"] = fill_roll
         firstrow["slip_r_roll"] = fill_roll - firstrow["intended"]
         firstrow["slip_a_roll"] = np.abs(firstrow["slip_r_roll"])
         firstrow["slip_pips_roll"] = firstrow["slip_a_roll"] / pip_size(firstrow["instrument"])
-        firstrow["open"] = signal["open"][-1] # ohlcv needs to be in signal, tune the t 2
-        firstrow["high"] = signal["high"][-1]
-        firstrow["low"] = signal["low"][-1] 
-        firstrow["close"] = signal["close"][-1]
-        firstrow["volume"] = signal["volume"][-1]
+        firstrow["open"] = signal["open"].iloc[-1] # ohlcv needs to be in signal, tune the t 2
+        firstrow["high"] = signal["high"].iloc[-1]
+        firstrow["low"] = signal["low"].iloc[-1] 
+        firstrow["close"] = signal["close"].iloc[-1]
+        firstrow["volume"] = signal["volume"].iloc[-1]
         firstrow["open_orders"] = open_orders # call pending orders from account but 0 not useful rn
         firstrow["open_trades"] = open_trades
         firstrow["p_roll"] = p_roll
@@ -402,9 +403,9 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
         firstrow["N_B"] = num_buy
         firstrow["N_S"] = num_sell
         firstrow["N_T"] = firstrow["N_B"] + firstrow["N_S"]
-        firstrow["C_roll"] = None #C_roll for later b/c vendor hide. PnL given
+        firstrow["C_roll"] = "HIDDEN COSTS BY OANDA NOT MVP" #C_roll for later b/c vendor hide. PnL given
         firstrow["PnL"] = pnl
 
-        finalized_record.loc[len(finalized_record)] = firstrow
+        full_df = pd.concat([finalized_record , pd.DataFrame(firstrow)] , ignore_index= True)
 
-        return {"finalrecord" : finalized_record}
+        return {"finalrecord" : full_df}
