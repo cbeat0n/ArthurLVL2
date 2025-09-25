@@ -6,6 +6,7 @@
 import pandas as pd # Library for data manipulation
 import numpy as np # Library for numerical calculations
 import requests # Library for HTTP requests
+import json # Library for JSON handling
 from datetime import datetime , timezone # Library for time objects 
 
 ## Internal Dependencies
@@ -186,7 +187,7 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
         firstrow["d_hor"] = trader.config.horizon
         firstrow["d_zone"] = trader.config.zone
         firstrow["instrument"] = trader.config.instrument
-        firstrow["regime"] = REGIME
+        firstrow["regime"] = json.dumps(REGIME)
         firstrow["B"] = signal["B"].iloc[-1]
         firstrow["S"] = signal["S"].iloc[-1]
         firstrow["Margin"] = signal["Margin"].iloc[-1]
@@ -366,7 +367,7 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
         firstrow["d_hor"] = trader.config.horizon
         firstrow["d_zone"] = trader.config.zone
         firstrow["instrument"] = trader.config.instrument
-        firstrow["regime"] = REGIME
+        firstrow["regime"] = json.dumps(REGIME)
         firstrow["B"] = signal["B"].iloc[-1]
         firstrow["S"] = signal["S"].iloc[-1]
         firstrow["Margin"] = signal["Margin"].iloc[-1]
