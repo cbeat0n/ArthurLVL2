@@ -55,7 +55,7 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
 
         firstrow = {column : None for column in COLS}
 
-         ## Current UTC
+        ## Current UTC
         now = datetime.now(timezone.utc)
 
         ## Midnight UTC today
@@ -196,10 +196,10 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
         firstrow["UxV"] = "Theta x Mu" #dynamically pull if more fluid else hardcode
         firstrow["ActionHat"] = signal["ActionHat"].iloc[-1]
         firstrow["lotsize_roll"] = lotsize_roll
-        firstrow["B_a"] = None #B_a with dynamic filling later, FOK
-        firstrow["S_a"] = None #S_a with dynamic filling later, FOK
-        firstrow["T_a"] = None #T_a with dynamic filling later, FOK
-        firstrow["why_unfill"] = None #why_unfill with dynamic filling later, FOK
+        firstrow["B_a"] = "NOT MVP" #B_a with dynamic filling later, FOK
+        firstrow["S_a"] = "S AMOUNT EXEC % NOT MVP" #S_a with dynamic filling later, FOK
+        firstrow["T_a"] = "NOT MVP" #T_a with dynamic filling later, FOK
+        firstrow["why_unfill"] = "DICT COUNTS OF WHY UNFILLLED NOT MVP" #why_unfill with dynamic filling later, FOK
         firstrow["liquidity"] = liquidity
         firstrow["bid"] = bid
         firstrow["ask"] = ask
@@ -222,10 +222,9 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
         firstrow["N_B"] = num_buy
         firstrow["N_S"] = num_sell
         firstrow["N_T"] = firstrow["N_B"] + firstrow["N_S"]
-        firstrow["C_roll"] = None #C_roll for later b/c vendor hide. PnL given
+        firstrow["C_roll"] = "HIDDEN COSTS BY OANDA NOT MVP" #C_roll for later b/c vendor hide. PnL given
         firstrow["PnL"] = pnl
 
-        
         full_df = pd.concat([finalized_record , pd.DataFrame(firstrow)] , ignore_index= True)
 
         return {"finalrecord" : full_df}
