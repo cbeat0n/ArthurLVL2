@@ -181,9 +181,9 @@ class Arthur():
         ## Every horizon: observe , measure , decide , act , then record. (OODA with logging)
         logs = extract_final_matrix(self.config.base_dir, trader) # A Trader records his results every cycle
         if logs["exists"]:
-            final_matrix = finalize_records(market, trader,manager ,  record=logs["final"], **kwargs)
+            final_matrix = finalize_records(market, trader,manager ,  record=logs["final"], **kwargs)["finalrecord"]
         else:
-            final_matrix = finalize_records(market, trader, manager ,  **kwargs)
+            final_matrix = finalize_records(market, trader, manager ,  **kwargs)["finalrecord"]
 
         load_final_data(final_matrix, logs["file"]) # CRUD for final records
         
@@ -574,29 +574,31 @@ class RiskManager:
 
     def in_bhe_hours(self) -> bool:
         """
-        in_bhe_hours gives True iff Mon–Fri, 06:55–15:00 (America/Chicago).
+        in_bhe_hours gives True iff Mon–Fri, 06:55–15:00 (America/Chicago). Time calculated in UTC
+        but used for UTC 6 or Central.
         It returns a bool.
         
         Inputs:
         self : self
         """
 
-        chi = ZoneInfo("America/Chicago")
-        start = dt_time(6, 55)   # 06:55 AM CST/CDT
-        end = dt_time(20,0) # boot myself off mvp dev by 8
+        now = datetime.now(ZoneInfo("UTC"))
+        start = dt_time(11, 55 , tzinfo = ZoneInfo("UTC"))  # 06:55 Chicago in UTC
+        end   = dt_time(20, 0 , tzinfo = ZoneInfo("UTC"))   # 15:00 Chicago in UTC
         
-        #end   = dt_time(15, 0)   # 03:00 PM CST/CDT
 
-        now_local = datetime.now(chi)
+        
 
         ## Weekend: Saturday=5, Sunday=6
-        
-        if now_local.weekday() >= 5:
+        if now.weekday() >= 5:
             return False
         
-        t = now_local.time()
+        t = now.timetz()
         
-        return start <= t < end
+        in_hours = start <= t < end
+        devtime = True
+
+        return devtime # Leave as devtime to develop, eventually in_hours will be dynamic
         
 
     def ignition(self):
@@ -957,17 +959,16 @@ class OandaTrading(Platform):
         else:
             raise ValueError(f"Error {request_body.status_code} {request_body.text}")
         
-        chi = ZoneInfo("America/Chicago")
-        now_chi = datetime.now(chi)
-        midnight_chi = datetime(year = now_chi.year , month = now_chi.month , day = now_chi.day , tzinfo = ZoneInfo("America/Chicago"))
+        utc = ZoneInfo("UTC")
+        now_utc = datetime.now(utc)
+        midnight_utc = datetime(year = now_utc.year , month = now_utc.month , day = now_utc.day , tzinfo = utc)
 
-        def to_chi(rfc3339_utc: str) -> datetime:
-            ## Handle nanoseconds: split off 'Z', then split fractional seconds
-            base = rfc3339_utc.rstrip("Z")
+        def parse_rfc3339_to_utc(rfc3339: str) -> datetime:
+            """Convert OANDA RFC3339 string to UTC datetime (drop nanos)."""
+            base = rfc3339.rstrip("Z")
             if "." in base:
                 base = base.split(".")[0]
-            dt_utc = datetime.fromisoformat(base).replace(tzinfo=ZoneInfo("UTC"))
-            return dt_utc.astimezone(chi)
+            return datetime.fromisoformat(base).replace(tzinfo=utc)
 
         ## Local filter: today
         count = 0
@@ -975,8 +976,8 @@ class OandaTrading(Platform):
             ct = t.get("closeTime")
             if not ct:
                 continue
-            ct_chi = to_chi(ct)
-            if midnight_chi <= ct_chi <= now_chi and float(t["currentUnits"]) > 0: # Only buy, because count the 
+            ct_utc = parse_rfc3339_to_utc(ct)
+            if midnight_utc <= ct_utc <= now_utc and float(t["currentUnits"]) > 0: # Only buy, because count the 
                 # money spent via buys. Can be changed.
                 count += 1
 

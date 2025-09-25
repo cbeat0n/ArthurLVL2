@@ -16,15 +16,16 @@ refresh at the rate of the granularity chosen whether this is S5 or something el
   <script>
     // Auto refresh based on granularity (e.g. M1 = 60000ms)
     const granularityMap = { M1: 60000 , M2 : 120000 , M4 : 240000 , M5 : 300000 , M10 : 600000 };
-    const refreshRate = granularityMap[horizon] + 1250;
-    setTimeout(() => { location.reload(); }, refreshRate);
+    const horizon = "{{ refreshRate }}";
+    const mvRefreshRate = granularityMap[horizon] + 1250;
+    setTimeout(() => { location.reload(); }, mvRefreshRate);
   </script>
 
 </head>
 <body>
   <h1>Arthur | Market View</h1>
   <div class="subheader">
-    Instrument: <strong>{{ instrument }}</strong> • Horizon: <strong>{{ horizon }}</strong> • Zone: <strong>{{ zone }}</strong>
+    Instrument: <strong>{{ instrument }}</strong> • Horizon: <strong>{{ refreshRate }}</strong> • Zone: <strong>{{ zone }}</strong>
   </div>
 
   <!-- Info Boxes -->

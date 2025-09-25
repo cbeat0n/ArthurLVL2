@@ -7,6 +7,7 @@
 ## External Dependencies
 from dotenv import load_dotenv # Env hides API Key
 import requests # Library for handling HTTP requests
+from datetime import datetime , timezone # Library for time objects
 from flask import Flask, render_template, request # Flask is common microwebframework
 import pandas as pd # Library for data manipulation
 import time # Library for time
@@ -28,13 +29,12 @@ load_dotenv()
 
 ## Initialize Flask App and globally hardcoded parameters.
 ArthurFlask = Flask(__name__)
+GLOBAL_STATE = {"Arthur" : None , "State" : None} # Arthur and its corresponding state start at None
 BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),"data")
 REGISTRY = {"vendor" : None , "platform" : os.getenv("OANDADEMOAPIKEY")} # Can keep .env separate
 VENDOR = DataVendor() # Blank because MVP uses Oanda
-EVENT = Event() # Currently MVP does not flag for "HOLDING" with ignition. Leave.
+EVENT = ... ## make enum for open closed holding
 
-## Counter sets Arthur up once
-MARKET_CYCLES = 0
 
 
 
@@ -62,10 +62,11 @@ def enter_vault():
     Inputs:
     None
     """
-    global MARKET_CYCLES , BASE_DIR , VENDOR , REGISTRY
+    
+    global GLOBAL_STATE , BASE_DIR , VENDOR , REGISTRY
 
 
-    if MARKET_CYCLES == 0:
+    if GLOBAL_STATE["Arthur"] == None:
 
         instrument = request.args.get("currencyPair", "USD_JPY")
         intake = request.args.get("intake", "S5")
@@ -95,34 +96,38 @@ def enter_vault():
         ## Make Platform & Arthur Instance
         platform.set_config(config)
         platform.set_instrument(instrument) # Hardcoded instrument
-        ArthurInstance = Arthur(cfg = config , teamstructure = {"managers" : managers , "traders" : traders})
+        GLOBAL_STATE["Arthur"] = Arthur(cfg = config , teamstructure = {"managers" : managers , "traders" : traders})
+        
+    
+    else:
+        print(f"GLOBAL_STATE of Arthur INSTANTIATED as of {datetime.now(timezone.utc)} UTC")
+        
+    arthur = GLOBAL_STATE["Arthur"]
 
     ## Accounting Information
-    account_summary = ArthurInstance._accounting()["summary"]
+    account_summary = arthur._accounting()["summary"]
 
     ## Arthur Ignition
-    ignition_center = ArthurInstance._ignition_A()
+    ignition_center = arthur._ignition_A()
 
     ## Acquire Market information
-    signal_filename = ArthurInstance._acquire_market()["location"]
+    signal_filename = arthur._acquire_market()["location"]
     
     if ignition_center == "OPEN":
-        ArthurInstance._market_cycle(marketfile=signal_filename)
-        MARKET_CYCLES += 1
+        arthur._market_cycle(marketfile=signal_filename)
     else:
-        ArthurInstance.shutdown()
+        arthur.shutdown()
         print("Trading out of bounds for current business operations.")
         print("Check logs for information.")
-        MARKET_CYCLES = 0
         raise SystemExit(0)
         #requests.post("http://127.0.0.1:5000/shutdownserver")
 
     return render_template("vault_storage.html", 
                            accountSummary = account_summary,
                            signalFile = signal_filename,
-                           instrument = instrument,
-                           refreshRate = horizon,
-                           zone = zone)
+                           instrument = arthur.config.instrument,
+                           refreshRate = arthur.config.horizon,
+                           zone = arthur.config.zone)
 
 @ArthurFlask.route("/visualize/", methods=["GET"])
 def visualize_market():
@@ -171,13 +176,15 @@ def shut_down_server():
     
     return "Server shutting down..."  # Smooth shutdown
 
-## Werkzeug for debugging
-if __name__ == "__main__":
-    ArthurFlask.run(debug=False)
+## Werkzeug for Development (slower, construction, setting up skeleton into chassis)
+#if __name__ == "__main__":
+#    ArthurFlask.run(debug=False)
 
 ## Waitress for Production -> Move to Gunicorn and Docker for full multiple computers
-#if __name__ == "__main__":
-#    from waitress import serve
-#    serve(ArthurFlask, host="0.0.0.0", port=5000)
+## When basis is ready, Waitress is stateless and spits out every last incorrect assertion.
+if __name__ == "__main__":
+    from waitress import serve
+    #serve(ArthurFlask, host="0.0.0.0", port=5000) # Waitress on non local server, closer to VPS
+    serve(ArthurFlask, host="127.0.0.1", port=5000)
 
 

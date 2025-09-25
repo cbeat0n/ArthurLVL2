@@ -49,7 +49,7 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
     ## Live -> happening at intake frequency, like OHLCV
     ## Rolling -> happening more frequently, rolling already at intake, like G and L or C
 
-    if record == None:
+    if record is None or (isinstance(record, pd.DataFrame) and record.empty):
 
         finalized_record = pd.DataFrame(columns = COLS)
 
@@ -110,16 +110,31 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
                       , "type" : "ORDER_FILL"})
 
         if transaction_body.status_code == 200:
-            pages_url = transaction_body.json()["pages"]
+            pages = transaction_body.json().get("pages" , [])
         else:
             raise ValueError(f"Error {transaction_body.status_code}: {transaction_body.text}")
         
-        range_transactions = trader.config.session.get(url = pages_url)
+        
+        pages_url = None  # reset every time
+        order_fills = [] # default safe value
 
-        if range_transactions.status_code == 200:
-            order_fills = range_transactions.json()["transactions"]
+        # Pick the first valid URL in pages
+        if isinstance(pages, list):
+            for candidate in pages:
+                if isinstance(candidate, str) and candidate.startswith("http"):
+                    pages_url = candidate
+                    break
+
+        if isinstance(pages_url, str):
+            range_transactions = trader.config.session.get(url=pages_url)
+            if range_transactions.status_code == 200:
+                order_fills = range_transactions.json().get("transactions", [])
+            else:
+                raise ValueError(f"Error {range_transactions.status_code}: {range_transactions.text}")
         else:
-            raise ValueError(f"Error {range_transactions.status_code}: {range_transactions.text}")
+            # Debugging breadcrumb so you can see what OANDA gave you
+            print(f"[WARN] No valid pages returned from OANDA: {pages}")
+            order_fills = []
 
 
         ## Intermediary calculations
@@ -154,10 +169,12 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
         open_orders = account["pendingOrderCount"]
         open_trades = account["openTradeCount"]
         
-        fxidx = [p["instrument"] for p in account["positions"]].index(trader.config.instrument)
-        
-        pnl = float(account["positions"][fxidx][trader.config.instrument]["pl"]) + float(account["positions"][fxidx][trader.config.instrument]["unrealizedPL"])
-
+        ## PnL might not exist for given asset being retrieved , else PnL is realized and unrealized
+        pnl = 0.0
+        for pos in account.get("positions", []):
+            if pos.get("instrument") == trader.config.instrument:
+                pnl = float(pos.get("pl", 0.0)) + float(pos.get("unrealizedPL", 0.0))
+                break
 
 
         ## Make a JSON of the row to be C, so that finalized matrix has U in CRUD.
@@ -174,9 +191,9 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
         firstrow["S"] = signal["S"]
         firstrow["Margin"] = signal["Margin"]
         firstrow["Intensity"] = signal["Intensity"]
-        firstrow["U"] = signal["theta"]
-        firstrow["V"] = signal["mu"]
-        firstrow["UxV"] = "theta x mu" #dynamically pull if more fluid else hardcode
+        firstrow["U"] = signal["Theta"]
+        firstrow["V"] = signal["Mu"]
+        firstrow["UxV"] = "Theta x Mu" #dynamically pull if more fluid else hardcode
         firstrow["ActionHat"] = signal["ActionHat"]
         firstrow["lotsize_roll"] = lotsize_roll
         firstrow["B_a"] = None #B_a with dynamic filling later, FOK
@@ -187,7 +204,7 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
         firstrow["bid"] = bid
         firstrow["ask"] = ask
         firstrow["spread"] = ask - bid
-        firstrow["intended"] = [ask if signal["ActionHat"] == 0 else (bid if signal["ActionHat"] == 1 else 0)][0]
+        firstrow["intended"] = ask if signal["ActionHat"].iloc[-1] == 0 else (bid if signal["ActionHat"].iloc[-1] == 1 else 0)
         firstrow["fill_roll"] = fill_roll
         firstrow["slip_r_roll"] = fill_roll - firstrow["intended"]
         firstrow["slip_a_roll"] = np.abs(firstrow["slip_r_roll"])
@@ -212,13 +229,13 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
 
         return {"finalrecord" : finalized_record}
     
-    elif len(record) > 0:
+    elif isinstance(record, pd.DataFrame) and not record.empty:
         
         finalized_record = record
 
         firstrow = {column : None for column in COLS}
 
-         ## Current UTC
+        ## Current UTC
         now = datetime.now(timezone.utc)
 
         ## Midnight UTC today
@@ -273,17 +290,32 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
                       , "type" : "ORDER_FILL"})
 
         if transaction_body.status_code == 200:
-            pages_url = transaction_body.json()["pages"]
+            pages = transaction_body.json().get("pages" , [])
         else:
             raise ValueError(f"Error {transaction_body.status_code}: {transaction_body.text}")
         
+        
+        pages_url = None  # reset every time
+        order_fills = [] # default safe value
 
-        range_transactions = trader.config.session.get(url = pages_url)
+        # Pick the first valid URL in pages
+        if isinstance(pages, list):
+            for candidate in pages:
+                if isinstance(candidate, str) and candidate.startswith("http"):
+                    pages_url = candidate
+                    break
 
-        if range_transactions.status_code == 200:
-            order_fills = range_transactions.json()["transactions"]
+        if isinstance(pages_url, str):
+            range_transactions = trader.config.session.get(url=pages_url)
+            if range_transactions.status_code == 200:
+                order_fills = range_transactions.json().get("transactions", [])
+            else:
+                raise ValueError(f"Error {range_transactions.status_code}: {range_transactions.text}")
         else:
-            raise ValueError(f"Error {range_transactions.status_code}: {range_transactions.text}")
+            # Debugging breadcrumb so you can see what OANDA gave you
+            print(f"[WARN] No valid pages returned from OANDA: {pages}")
+            order_fills = []
+
 
         ## Intermediary calculations
         lotsize_roll = np.median([abs(int(t["units"]))
@@ -317,10 +349,12 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
         open_orders = account["pendingOrderCount"]
         open_trades = account["openTradeCount"]
         
-        fxidx = [p["instrument"] for p in account["positions"]].index(trader.config.instrument)
-        
-        pnl = float(account["positions"][fxidx][trader.config.instrument]["pl"]) + float(account["positions"][fxidx][trader.config.instrument]["unrealizedPL"])
-
+        ## PnL might not exist for given asset being retrieved , else PnL is realized and unrealized
+        pnl = 0.0
+        for pos in account.get("positions", []):
+            if pos.get("instrument") == trader.config.instrument:
+                pnl = float(pos.get("pl", 0.0)) + float(pos.get("unrealizedPL", 0.0))
+                break
 
 
         ## Make a JSON of the row to be C, so that finalized matrix has U in CRUD.
@@ -337,9 +371,9 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
         firstrow["S"] = signal["S"]
         firstrow["Margin"] = signal["Margin"]
         firstrow["Intensity"] = signal["Intensity"]
-        firstrow["U"] = signal["theta"]
-        firstrow["V"] = signal["mu"]
-        firstrow["UxV"] = "theta x mu" #dynamically pull if more fluid else hardcode
+        firstrow["U"] = signal["Theta"]
+        firstrow["V"] = signal["Mu"]
+        firstrow["UxV"] = "Theta x Mu" #dynamically pull if more fluid else hardcode
         firstrow["ActionHat"] = signal["ActionHat"]
         firstrow["lotsize_roll"] = lotsize_roll
         firstrow["B_a"] = None #B_a with dynamic filling later, FOK
@@ -350,7 +384,7 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
         firstrow["bid"] = bid
         firstrow["ask"] = ask
         firstrow["spread"] = ask - bid
-        firstrow["intended"] = [ask if signal["ActionHat"] == 0 else (bid if signal["ActionHat"] == 1 else 0)][0]
+        firstrow["intended"] = ask if signal["ActionHat"].iloc[-1] == 0 else (bid if signal["ActionHat"].iloc[-1] == 1 else 0)
         firstrow["fill_roll"] = fill_roll
         firstrow["slip_r_roll"] = fill_roll - firstrow["intended"]
         firstrow["slip_a_roll"] = np.abs(firstrow["slip_r_roll"])

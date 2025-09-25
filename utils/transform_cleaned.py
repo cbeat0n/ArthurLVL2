@@ -46,8 +46,8 @@ def clean_tabular(tabular : list ,  horizon : str):
     cleaned_df["timestamp"] = pd.to_datetime(cleaned_df["timestamp"] , utc = True , errors = 'coerce')
     cleaned_df = cleaned_df.sort_values('timestamp').set_index('timestamp')
 
-    ## Maps are made for OANDA.
-    horizon_rule = {"M1" : "1T", "M2" : "2T", "M4" : "4T", "M5" : "5T", "M10" : "10T"}[horizon]
+    ## Maps are made here.
+    horizon_rule = {"M1" : "1min", "M2" : "2min", "M4" : "4min", "M5" : "5min", "M10" : "10min"}[horizon]
 
     ## Aggregation smooths out each pricing definition by its accorded aggregation
     agg = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
