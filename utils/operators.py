@@ -610,9 +610,8 @@ class RiskManager:
         t = now.timetz()
         
         in_hours = start <= t < end
-        devtime = True
 
-        return devtime # Leave as devtime to develop, eventually in_hours will be dynamic
+        return in_hours
     
     def detect_minor_anomaly():
         """
