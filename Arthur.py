@@ -134,7 +134,7 @@ def enter_vault():
         GLOBAL_STATE["Arthur"].config.operationalstate = ignition_center
         
     else:
-        print(f"Currently closing")
+        print(f"Currently closing...")
         GLOBAL_STATE["Arthur"].config.operationalstate = ignition_center
         
         arthur.shutdown() # Stops thread pooling
