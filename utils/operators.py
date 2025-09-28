@@ -165,7 +165,7 @@ class Arthur():
         """
     
         states = [m.ignition() for m in self.managers]
-
+        print(f"states {states}")
         if self.config.holdingbutton is None:
             if any(s == OperationalState.OPEN for s in states):
                 return OperationalState.OPEN

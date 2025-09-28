@@ -180,16 +180,16 @@ def visualize_market():
 def shut_down_server():
     """
     shut_down_server shuts down the Waitress server by sending SIGTERM to the current process.
-    It returns a string.
+    It returns nothing.
 
     Inputs:
     None
     """
 
+    print("Server shutting down...")
     pid = os.getpid()
     os.kill(pid, signal.SIGTERM)   # Graceful termination signal
 
-    return "Server shutting down..."
 
 
 
