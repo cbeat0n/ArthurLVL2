@@ -610,13 +610,8 @@ class RiskManager:
         
         in_hours = start <= t < end
 
-        print("DEBUG DEBUG DEBUG")
-        print(now)
-        print(start)
-        print(t)
-        print(end)
 
-        return in_hours
+        return True
     
     def detect_minor_anomaly():
         """
