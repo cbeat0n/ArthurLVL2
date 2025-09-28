@@ -32,7 +32,7 @@ load_dotenv()
 
 ## Initialize Flask App and globally hardcoded parameters.
 ArthurFlask = Flask(__name__)
-GLOBAL_STATE = {"Arthur" : None , "State" : None} # Arthur and its corresponding state start at None
+GLOBAL_STATE = {"Arthur" : None} # Arthur and its corresponding state start at None
 BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),"data")
 REGISTRY = {"vendor" : None , "platform" : os.getenv("OANDADEMOAPIKEY")} # Can keep .env separate
 VENDOR = DataVendor() # Blank because MVP uses Oanda
@@ -113,8 +113,10 @@ def enter_vault():
 
     ## 4 way switch, not manual in hand switch
     if request.method == "POST":
-        value = request.form.get("autoSwitch") # 3 way OperationalState or AUTOMATED
-        if value in OperationalState.__members__:
+        value = request.form.get("autoSwitch")
+        if value == "AUTOMATED":
+            GLOBAL_STATE["Arthur"].config.holdingbutton = None
+        elif value in OperationalState.__members__:
             GLOBAL_STATE["Arthur"].config.holdingbutton = OperationalState[value]
 
     ## Arthur Ignition
@@ -124,12 +126,13 @@ def enter_vault():
     signal_filename = arthur._acquire_market()["location"]
     
     if ignition_center == OperationalState.OPEN:
+        GLOBAL_STATE["Arthur"].config.operationalstate = ignition_center
         arthur._market_cycle(marketfile=signal_filename)
     elif ignition_center == OperationalState.HOLDING:
+        GLOBAL_STATE["Arthur"].config.operationalstate = ignition_center
         print(f"Currently holding...")
     else:
-        GLOBAL_STATE["Arthur"].config.operationalstate = OperationalState.CLOSED
-        GLOBAL_STATE["State"] = OperationalState.CLOSED
+        GLOBAL_STATE["Arthur"].config.operationalstate = ignition_center
         
         arthur.shutdown() # Stops thread pooling
         

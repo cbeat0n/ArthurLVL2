@@ -166,12 +166,13 @@ class Arthur():
     
         states = [m.ignition() for m in self.managers]
 
-        if any(s == OperationalState.OPEN for s in states):
-            return OperationalState.OPEN
-        elif self.holdingbutton.state in OperationalState.__members__:
-            return self.holdingbutton.state
-        elif all(s == OperationalState.CLOSED for s in states):
-            return OperationalState.CLOSED
+        if self.config.holdingbutton is None:
+            if any(s == OperationalState.OPEN for s in states):
+                return OperationalState.OPEN
+            elif all(s == OperationalState.CLOSED for s in states):
+                return OperationalState.CLOSED
+        else:
+            return self.config.holdingbutton
     
     def trader_cycle(self , marketfile : str , manager : RiskManager , trader : Trader , kwargs : dict):
         """
