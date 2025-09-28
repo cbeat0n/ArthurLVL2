@@ -189,7 +189,7 @@ def shut_down_server():
     pid = os.getpid()
     os.kill(pid, signal.SIGTERM)   # Graceful termination signal
 
-    return jsonify({"status": "Shutting Down...", "pid": pid}), 200
+    return "Server shutting down..."
 
 
 
