@@ -595,6 +595,13 @@ class RiskManager:
         self : self
         """
 
+        
+        devtime = True
+
+        if devtime:
+            print(f"Development Time is whenever needed.")
+            return True
+
         now = datetime.now(ZoneInfo("UTC"))
         start = dt_time(11, 55 , tzinfo = ZoneInfo("UTC"))  # 06:55 Chicago in UTC
         end   = dt_time(20, 0 , tzinfo = ZoneInfo("UTC"))   # 15:00 Chicago in UTC
@@ -609,7 +616,7 @@ class RiskManager:
         t = now.timetz()
         
         in_hours = start <= t < end
-        return True
+        return in_hours
     
     def detect_minor_anomaly(self):
         """
