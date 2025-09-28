@@ -586,6 +586,29 @@ class RiskManager:
         return spent_today < budget # static lotsize reduces to trades today < maxnumtrades
 
     def in_bhe_hours(self) -> bool:
+        """
+        in_bhe_hours gives True iff Mon–Fri, 06:55–15:00 (America/Chicago). Time calculated in UTC
+        but used for UTC 6 or Central.
+        It returns a bool.
+        
+        Inputs:
+        self : self
+        """
+
+        now = datetime.now(ZoneInfo("UTC"))
+        start = dt_time(11, 55 , tzinfo = ZoneInfo("UTC"))  # 06:55 Chicago in UTC
+        end   = dt_time(20, 0 , tzinfo = ZoneInfo("UTC"))   # 15:00 Chicago in UTC
+        
+
+        
+
+        ## Weekend: Saturday=5, Sunday=6
+        if now.weekday() >= 5:
+            return False
+        
+        t = now.timetz()
+        
+        in_hours = start <= t < end
         return True
     
     def detect_minor_anomaly(self):
