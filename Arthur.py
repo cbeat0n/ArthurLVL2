@@ -126,12 +126,15 @@ def enter_vault():
     signal_filename = arthur._acquire_market()["location"]
     
     if ignition_center == OperationalState.OPEN:
+        print(f"Currently open...")
         GLOBAL_STATE["Arthur"].config.operationalstate = ignition_center
         arthur._market_cycle(marketfile=signal_filename)
     elif ignition_center == OperationalState.HOLDING:
-        GLOBAL_STATE["Arthur"].config.operationalstate = ignition_center
         print(f"Currently holding...")
+        GLOBAL_STATE["Arthur"].config.operationalstate = ignition_center
+        
     else:
+        print(f"Currently closing")
         GLOBAL_STATE["Arthur"].config.operationalstate = ignition_center
         
         arthur.shutdown() # Stops thread pooling
