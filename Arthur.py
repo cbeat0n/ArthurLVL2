@@ -106,7 +106,7 @@ def enter_vault():
         print(f"GLOBAL_STATE of Arthur INSTANTIATED as of {datetime.now(timezone.utc)} UTC")
         
     arthur = GLOBAL_STATE["Arthur"]
-    print("Test in_bhe_hours:", arthur.managers[0].in_bhe_hours())
+    
     ## Accounting Information
     account_summary = arthur._accounting()["summary"]
 

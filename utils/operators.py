@@ -599,7 +599,6 @@ class RiskManager:
         devtime = True
 
         if devtime:
-            print(f"Development Time is whenever needed.")
             return True
 
         now = datetime.now(ZoneInfo("UTC"))
