@@ -601,7 +601,11 @@ class RiskManager:
         end   = dt_time(20, 0 , tzinfo = ZoneInfo("UTC"))   # 15:00 Chicago in UTC
         
 
-        
+        print("DEBUG DEBUG DEBUG")
+        print(now)
+        print(start)
+        print(t)
+        print(end)
 
         ## Weekend: Saturday=5, Sunday=6
         if now.weekday() >= 5:
@@ -628,9 +632,7 @@ class RiskManager:
         Inputs:
         self: self
         """
-        print("bhe hours and budget")
-        print(self.in_bhe_hours())
-        print(self.in_budget())
+        
         if self.in_bhe_hours() and self.in_budget():
             if self.detect_minor_anomaly():
                 return OperationalState.HOLDING
