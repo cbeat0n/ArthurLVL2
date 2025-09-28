@@ -588,7 +588,7 @@ class RiskManager:
     def in_bhe_hours(self) -> bool:
         return True
     
-    def detect_minor_anomaly():
+    def detect_minor_anomaly(self):
         """
         holder
         """
