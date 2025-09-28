@@ -629,7 +629,9 @@ class RiskManager:
         Inputs:
         self: self
         """
-        
+        print("bhe hours and budget")
+        print(self.in_bhe_hours())
+        print(self.in_budget())
         if self.in_bhe_hours() and self.in_budget():
             if self.detect_minor_anomaly():
                 return OperationalState.HOLDING
