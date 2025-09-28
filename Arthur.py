@@ -7,8 +7,10 @@
 ## External Dependencies
 from dotenv import load_dotenv # Env hides API Key
 import requests # Library for handling HTTP requests
+import signal # Library for Server signals
 from datetime import datetime , timezone # Library for time objects
-from flask import Flask, render_template, request # Flask is common microwebframework
+from flask import Flask, render_template, request # Library for common MWF
+from flask import jsonify , redirect, url_for # Library for common MWF
 import pandas as pd # Library for data manipulation
 import time # Library for time
 import os # Library for operating system communication
@@ -23,7 +25,7 @@ from utils.transform_signal import decisionrule , transform_to_signal
 from utils.load_signal import load_signal_matrix
 from utils.operators import DataVendor , Platform , OandaTrading ,ArthurConfig, Arthur
 from utils.operators import RiskManager , Trader
-from utils.operators import BusinessState
+from utils.operators import OperationalState
 
 ## Load environment variables from the .env file
 load_dotenv()
@@ -53,7 +55,7 @@ def home():
     return render_template("homepage.html")
 
 
-@ArthurFlask.route("/accounting", methods = ["GET"])
+@ArthurFlask.route("/accounting", methods = ["GET","POST"])
 def enter_vault():
     """
     enter_vault sets up the dynamic accounting dashboard for current status
@@ -91,14 +93,14 @@ def enter_vault():
             horizon=horizon,
             zone=zone,
             threadpool=ThreadPoolExecutor(max_workers = managers*traders), # Static, dynamic later
-            state=BusinessState.OPEN
+            state=OperationalState.OPEN
         )
         
         ## Make Platform & Arthur Instance
         platform.set_config(config)
         platform.set_instrument(instrument) # Hardcoded instrument
         GLOBAL_STATE["Arthur"] = Arthur(cfg = config , teamstructure = {"managers" : managers , "traders" : traders})
-        GLOBAL_STATE["State"] = config.businessstate
+        GLOBAL_STATE["State"] = config.operationalstate
     
     else:
         print(f"GLOBAL_STATE of Arthur INSTANTIATED as of {datetime.now(timezone.utc)} UTC")
@@ -108,24 +110,32 @@ def enter_vault():
     ## Accounting Information
     account_summary = arthur._accounting()["summary"]
 
+
+    ## 4 way switch, not manual in hand switch
+    if request.method == "POST":
+        value = request.form.get("autoSwitch") # 3 way OperationalState or AUTOMATED
+        if value in OperationalState.__members__:
+            GLOBAL_STATE["Arthur"].config.holdingbutton = OperationalState[value]
+
     ## Arthur Ignition
     ignition_center = arthur._ignition_A()
 
     ## Acquire Market information
     signal_filename = arthur._acquire_market()["location"]
     
-    if ignition_center == BusinessState.OPEN:
+    if ignition_center == OperationalState.OPEN:
         arthur._market_cycle(marketfile=signal_filename)
+    elif ignition_center == OperationalState.HOLDING:
+        print(f"Currently holding...")
     else:
-        GLOBAL_STATE["Arthur"].config.businessstate = BusinessState.CLOSED
-        GLOBAL_STATE["State"] = BusinessState.CLOSED
+        GLOBAL_STATE["Arthur"].config.operationalstate = OperationalState.CLOSED
+        GLOBAL_STATE["State"] = OperationalState.CLOSED
         
         arthur.shutdown() # Stops thread pooling
         
-        print("Trading out of bounds for current business operations.")
+        print("Trading out of bounds for current operations.")
         print("Check logs for information.")
-        raise SystemExit(0)
-        #requests.post("http://127.0.0.1:5000/shutdownserver")
+        requests.post("http://127.0.0.1:5000/shutdownserver")
 
     return render_template("vault_storage.html", 
                            accountSummary = account_summary,
@@ -166,24 +176,19 @@ def visualize_market():
 @ArthurFlask.route("/shutdownserver", methods=["POST"])
 def shut_down_server():
     """
-    shut_down_server shuts down the Werkzeug in a mooth manner.
+    shut_down_server shuts down the Waitress server by sending SIGTERM to the current process.
     It returns a string.
 
     Inputs:
     None
     """
 
-    ### CURRENTLY FOR WERKZEUG, USING WAITRESS. SHUTDOWN NEEDS TO 
-    ### GO THROUGH SIGNAL FOR CONTAINMENT AND PROD SERVER AND VPS,
-    ### NOT FOR MVP.
-    
-    func = request.environ.get("werkzeug.server.shutdown")
-    if func is None:
-        raise RuntimeError("Not running with the Werkzeug Server")
-    
-    func()
-    
-    return "Server shutting down..."  # Smooth shutdown
+    pid = os.getpid()
+    os.kill(pid, signal.SIGTERM)   # Graceful termination signal
+
+    return jsonify({"status": "Shutting Down...", "pid": pid}), 200
+
+
 
 ## Werkzeug for Development (slower, construction, setting up skeleton into chassis)
 #if __name__ == "__main__":

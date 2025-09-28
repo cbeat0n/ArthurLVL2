@@ -29,7 +29,7 @@ from utils.generic import finalize_records
 from utils.generic import load_final_data
 
 
-class BusinessState(Enum):
+class OperationalState(Enum):
     OPEN = "OPEN"
     HOLDING = "HOLDING"
     CLOSED = "CLOSED"
@@ -43,7 +43,7 @@ class ArthurConfig():
     """
 
     def __init__(self , base_dir : str , mode : str , vendor : DataVendor , platform : Platform ,registry: dict,  instrument : str,
-                 intake : str , horizon : str , zone : str , threadpool : ThreadPoolExecutor , state : BusinessState) -> None:
+                 intake : str , horizon : str , zone : str , threadpool : ThreadPoolExecutor , state : OperationalState) -> None:
         """
         __init__ initializes ArthurConfig.
         It returns nothing.
@@ -60,7 +60,7 @@ class ArthurConfig():
         horizon : str - Frequency of decision sample
         zone : str - Frequency of horizon samples used to make decision space UxV
         threadpool : ThreadPoolExecutor - Threading Pool for concurrent trading
-        state : BusinessState - enumerated value for open holding or closed for business
+        state : OperationalState - enumerated value for open holding or closed
         """
 
         self.base_dir = base_dir 
@@ -73,7 +73,8 @@ class ArthurConfig():
         self.horizon = horizon
         self.zone = zone
         self.threadpool = threadpool 
-        self.businessstate = state
+        self.operationalstate = state
+        self.holdingbutton = None
 
         ## Requests Session for only one SSCS communication, lowering latency.
         self.session = requests.Session()
@@ -156,16 +157,21 @@ class Arthur():
     def _ignition_A(self):
         """
         _ignition_A is the total ignition on the Arthur Instance. It combines the managers'
-        ignitions into one total "Open or Closed for Business" check.
+        ignitions into one total "Open or Closed" check.
         It returns a string.
 
         Inputs:
         self : self
         """
-        
+    
         states = [m.ignition() for m in self.managers]
-        self.config.businessstate = BusinessState.OPEN if all(s == BusinessState.OPEN for s in states) else BusinessState.CLOSED
-        return self.config.businessstate
+
+        if any(s == OperationalState.OPEN for s in states):
+            return OperationalState.OPEN
+        elif self.holdingbutton.state in OperationalState.__members__:
+            return self.holdingbutton.state
+        elif all(s == OperationalState.CLOSED for s in states):
+            return OperationalState.CLOSED
     
     def trader_cycle(self , marketfile : str , manager : RiskManager , trader : Trader , kwargs : dict):
         """
@@ -606,11 +612,17 @@ class RiskManager:
         devtime = True
 
         return devtime # Leave as devtime to develop, eventually in_hours will be dynamic
+    
+    def detect_minor_anomaly():
+        """
+        holder
+        """
         
+        return False # MVP will fly under radar for flash crash, liquidity vacuum, and black swans
 
     def ignition(self):
         """
-        ignition gives the status on whether or not BHE is in business hours and in budget.
+        ignition gives the status on whether or not BHE is in operational hours and in budget.
         It returns a string.
 
         Inputs:
@@ -618,9 +630,13 @@ class RiskManager:
         """
         
         if self.in_bhe_hours() and self.in_budget():
-            return BusinessState.OPEN
-        else: 
-            return BusinessState.CLOSED
+            if self.detect_minor_anomaly():
+                return OperationalState.HOLDING
+            else:
+                return OperationalState.OPEN
+        else:
+            return OperationalState.CLOSED
+
         
         
     def set_trader_team(self , team : list):

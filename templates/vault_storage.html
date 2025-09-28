@@ -20,6 +20,16 @@
     </div>
     <div class="row">
       <a class="btn" target = '_blank' href="/visualize/?signalFile={{ signalFile|default('') }}&instrument={{ instrument|default('') }}&horizon={{ refreshRate|default('') }}&zone={{ zone|default('') }}">Open Market View</a>
+      <form method="post" action="/accounting">
+        <label for="autoSwitch">Automation Switch:</label>
+          <select name="autoSwitch" id="autoSwitch"required>
+            <option value="OPEN">OPEN</option>
+            <option value="HOLDING">HOLDING</option>
+            <option value="CLOSED">CLOSED</option>
+            <option value="AUTOMATED" selected>Automated</option>
+          </select>
+          <button type="submit">Apply</button>
+      </form>
     </div>
   </header>
   <main>
