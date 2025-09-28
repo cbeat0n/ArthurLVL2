@@ -171,6 +171,8 @@ class Arthur():
             elif all(s == OperationalState.CLOSED for s in states):
                 return OperationalState.CLOSED
         else:
+            print("Holding Switch In Use: \n")
+            print(f"Manual State is {self.config.holdingbutton}")
             return self.config.holdingbutton
     
     def trader_cycle(self , marketfile : str , manager : RiskManager , trader : Trader , kwargs : dict):
