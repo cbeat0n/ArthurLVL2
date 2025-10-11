@@ -3,6 +3,7 @@
 
 ## External Dependencies
 import pandas as pd # Library for data manipulation
+import re # Library for RegEx
 from datetime import datetime # Library for time objects
 
 def convert_to_tabular(candlebody : dict):
@@ -46,8 +47,17 @@ def clean_tabular(tabular : list ,  horizon : str):
     cleaned_df["timestamp"] = pd.to_datetime(cleaned_df["timestamp"] , utc = True , errors = 'coerce')
     cleaned_df = cleaned_df.sort_values('timestamp').set_index('timestamp')
 
-    ## Maps are made here.
-    horizon_rule = {"M1" : "1min", "M2" : "2min", "M4" : "4min", "M5" : "5min", "M10" : "10min"}[horizon]
+    ## Take Horizon of form MXQN e.g M20Q1 for M20.25 and split it via RegEx
+    parts = re.match(r"([A-Z]+\d+)([A-Z]+\d+)", horizon)
+    if parts:
+        M, Q = parts.groups()
+        
+
+    ## Number of seconds for horizon is calculated using modulo arithmetic.
+    ## For Sk and MXQN , seconds is ( 15 / k ) * (4 X + N) or 60 seconds per minute and 15 seconds per
+    ## quarter minute , hardcoded for S5. There are 3 df because intake, horizon, and zone, but the 
+    ## intake is a hardcoded value for division clarity.
+    horizon_rule = pd.Timedelta((15 / 5) * (4 * int(M[1:]) + int(Q[1:])) , "s")
 
     ## Aggregation smooths out each pricing definition by its accorded aggregation
     agg = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}

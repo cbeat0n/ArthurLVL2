@@ -11,6 +11,7 @@ from datetime import datetime
 from datetime import time as dt_time
 from zoneinfo import ZoneInfo 
 import os
+import re
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Event
@@ -215,11 +216,22 @@ class Arthur():
 
         ## ETL-Base
 
+        ## Get the Horizon as minutes
+        parts = re.match(r"([A-Z]+\d+)([A-Z]+\d+)", self.config.horizon)
+        if parts:
+            M, Q = parts.groups()
+
+        horizon_minutes = float(M[1:]) + (float(int(Q[1:]) / 4))
+
+        ## Get the last 8 zones, equal to 
+        ## 8 * zone int * horizon in minutes * 60 s / min * (1/S5)
+        counter = 8* self.config.zone * horizon_minutes * 60 * 0.2
+
         ## E1
         ## {"candles" : candles , "instrument" : instrument, "intake" : intake}
         candlebody = fetch_candles(self.config.mode , 
             self.config.vendor, self.config.platform , instrument = self.config.instrument, intake = self.config.intake,
-            price = 'M' , count = 3600 , timezone = 'UTC') # hardcoded count right now
+            price = 'M' , count = counter , timezone = 'UTC')
 
         ## T1
         ## Tabular list and then {"cleaned" : cleaned , "safe_ts" : safe_ts}

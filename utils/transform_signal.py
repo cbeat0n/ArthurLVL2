@@ -25,7 +25,6 @@ IREG = 1 # ireg in {-1,1} , other values not tested & mreg ireg not both -1
 ECO_ROLL = 20 # ecoroll not tested yet
 SMALL_LAG = 2 # small lag in {2,3,4,5,6,7,8,9,10,11,12,13,14} , other values not tested , s < zone only
 
-
 ## Observed Values of Theta and Mu as phenomena
 ## U and V are not going to be perfectly sortable as unsupervised cluster space.
 ## THETA MIN = ...
@@ -240,7 +239,7 @@ def transform_to_signal(filename: str , zone : int):
     proto_signal["Argt"] = (proto_signal["Dot"] ) / (proto_signal["normB"] * proto_signal["normS"])
     proto_signal["Argt"] = proto_signal["Argt"].clip(-1.0,1.0)
 
-    proto_signal["Theta"]  = proto_signal["Argt"].apply(lambda x: np.degrees(np.arccos(x)))
+    proto_signal["Theta"] = proto_signal["Argt"].apply(lambda x: np.degrees(np.arccos(x)))
     proto_signal["Theta"] = proto_signal["Theta"].round(RFIGS)
 
     ## Crystallized Margin Mu Calculations
