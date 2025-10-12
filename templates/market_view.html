@@ -13,11 +13,21 @@ refresh at the rate of the granularity chosen whether this is S5 or something el
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script> 
   <!-- Static version, watch this parameter-->
   
-  <script>
-    // Auto refresh based on granularity (e.g. M1 = 60000ms)
-    const granularityMap = { M1: 60000 , M2 : 120000 , M4 : 240000 , M5 : 300000 , M10 : 600000 };
-    const horizon = "{{ refreshRate }}";
-    const mvRefreshRate = granularityMap[horizon] + 1250;
+  <<script>
+    // Parse horizon like "M2Q1" → 2 + 0.25 = 2.25 minutes
+    function getRefreshMs(horizon) {
+      const match = horizon.match(/M(\d+)(?:Q(\d))?/);
+      if (!match) return 60000; // default to 1 minute if unknown
+
+      const minutes = parseInt(match[1]);
+      const quarters = match[2] ? parseInt(match[2]) / 4 : 0;
+      const totalMinutes = minutes + quarters;
+
+      return totalMinutes * 60 * 1000;
+    }
+
+    const horizon = "{{ refreshRate }}"; // e.g. M2Q1, M5, etc.
+    const mvRefreshRate = getRefreshMs(horizon) + 1250; // small buffer
     setTimeout(() => { location.reload(); }, mvRefreshRate);
   </script>
 
