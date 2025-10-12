@@ -225,8 +225,10 @@ class Arthur():
 
         ## Get the last 8 zones, equal to 
         ## 8 * zone int * horizon in minutes * 60 s / min * (1/S5)
-        counter = 8* self.config.zone * horizon_minutes * 60 * 0.2
-
+        ## horizon_minutes is float i.e 9.5 but counter is integer
+        ## with .0 value so cast as int.
+        counter = int(8* self.config.zone * horizon_minutes * 60 * 0.2)
+        
         ## E1
         ## {"candles" : candles , "instrument" : instrument, "intake" : intake}
         candlebody = fetch_candles(self.config.mode , 
