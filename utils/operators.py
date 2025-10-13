@@ -233,7 +233,7 @@ class Arthur():
         ## {"candles" : candles , "instrument" : instrument, "intake" : intake}
         candlebody = fetch_candles(self.config.mode , 
             self.config.vendor, self.config.platform , instrument = self.config.instrument, intake = self.config.intake,
-            price = 'M' , count = counter , timezone = 'UTC')
+            price = 'M' , count = int(counter) , timezone = 'UTC')
 
         ## T1
         ## Tabular list and then {"cleaned" : cleaned , "safe_ts" : safe_ts}
