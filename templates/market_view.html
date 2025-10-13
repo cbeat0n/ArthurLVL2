@@ -27,9 +27,9 @@ refresh at the rate of the granularity chosen whether this is S5 or something el
     }
 
     const horizon = "{{ refreshRate }}"; // e.g. M2Q1, M5, etc.
-    console.log("Horizon received:" , horizon)
     const mvRefreshRate = getRefreshMs(horizon) + 1250; // small buffer
     setTimeout(() => { location.reload(); }, mvRefreshRate);
+    console.log("Reloaded!")
   </script>
 
 </head>
