@@ -17,7 +17,7 @@ refresh at the rate of the granularity chosen whether this is S5 or something el
     // Parse horizon like "M2Q1" → 2 + 0.25 = 2.25 minutes
     function getRefreshMs(horizon) {
       const match = horizon.match(/M(\d+)(?:Q(\d))?/);
-      if (!match) return 60000; // default to 1 minute if unknown
+
 
       const minutes = parseInt(match[1]);
       const quarters = match[2] ? parseInt(match[2]) / 4 : 0;
@@ -27,6 +27,7 @@ refresh at the rate of the granularity chosen whether this is S5 or something el
     }
 
     const horizon = "{{ refreshRate }}"; // e.g. M2Q1, M5, etc.
+    console.log("Horizon received:" , horizon)
     const mvRefreshRate = getRefreshMs(horizon) + 1250; // small buffer
     setTimeout(() => { location.reload(); }, mvRefreshRate);
   </script>

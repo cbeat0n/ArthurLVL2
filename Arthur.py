@@ -132,7 +132,6 @@ def enter_vault():
     elif ignition_center == OperationalState.HOLDING:
         print(f"Currently holding...")
         GLOBAL_STATE["Arthur"].config.operationalstate = ignition_center
-        
     else:
         print(f"Currently closing...")
         GLOBAL_STATE["Arthur"].config.operationalstate = ignition_center
