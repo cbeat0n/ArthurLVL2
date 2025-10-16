@@ -51,17 +51,31 @@
     </section>
   </main>
   <script>
-    // Auto-refresh based on refreshRate seconds (if numeric)
-    (function () {
+  (function () {
+    
+    function getRefreshMs(horizon) {
+      const match = horizon.match(/M(\d+)(?:Q(\d))?/);
 
-      const granularityMap = { M1: 60000 , M2 : 120000 , M4 : 240000 , M5 : 300000 , M10 : 600000 };
-      const rr = granularityMap["{{ refreshRate }}"];
+      const minutes = parseInt(match[1]);
+      const quarters = match[2] ? parseInt(match[2]) / 4 : 0;
+      const totalMinutes = minutes + quarters;
 
-      if (!isNaN(rr) && rr > 0) {
-        setInterval(function(){ location.reload(); }, rr);
-      }
+      return totalMinutes * 60 * 1000;
+    }
+
+    
+    const horizon = "{{ refreshRate }}"; // e.g. M2, M2Q1, M5, etc.
+    const rr = getRefreshMs(horizon);
+    console.log(`UI Refresh: ${horizon} → ${rr / 1000}s`);
+
+    if (!isNaN(rr) && rr > 0) {
+      setInterval(() => {
+        location.reload();
+      }, rr);
+    }
     })();
-
   </script>
 </body>
 </html>
+
+
