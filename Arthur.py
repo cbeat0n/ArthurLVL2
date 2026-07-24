@@ -195,14 +195,14 @@ def shut_down_server():
 
 
 ## Werkzeug for Development (slower, construction, setting up skeleton into chassis)
-#if __name__ == "__main__":
-#    ArthurFlask.run(debug=False)
+if __name__ == "__main__":
+    ArthurFlask.run(debug=False)
 
 ## Waitress for Production -> Move to Gunicorn and Docker for full multiple computers
 ## When basis is ready, Waitress is stateless and spits out every last incorrect assertion.
-if __name__ == "__main__":
-    from waitress import serve
-    #serve(ArthurFlask, host="0.0.0.0", port=5000) # Waitress on non local server, closer to VPS
-    serve(ArthurFlask, host="127.0.0.1", port=5000)
+## if __name__ == "__main__":
+##     from waitress import serve
+##     #serve(ArthurFlask, host="0.0.0.0", port=5000) # Waitress on non local server, closer to VPS
+##     serve(ArthurFlask, host="127.0.0.1", port=5000)
 
 
