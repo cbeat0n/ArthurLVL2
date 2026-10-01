@@ -47,6 +47,7 @@ EPS_SMOOTHER = 1e-9 # smoother small , around 1e-9
 MIN_PERIODS = 10 # rolling z min periods  , not tested yet , was max(10 , Z_WINDOW//5)
 RFIGS = 4 # figures used for rounding
 MU_FLOOR = 10**-RFIGS # smallest nonzero Margin diff, floor for the Mu denominator
+SIGNAL_COLS = ["X","Y","B","S","Margin","Intensity","Theta","Mu"] # must all exist before deciding
 
 def decisionrule(sample : pd.Series):
     """
@@ -58,6 +59,10 @@ def decisionrule(sample : pd.Series):
     Inputs:
     sample: pd.Series - the sample row being decided on
     """
+
+    ## Skip trading until the entire row is populated (rolling windows still warming up)
+    if sample[SIGNAL_COLS].isna().any():
+        return 2
 
     if True:
         return 2 ## Naive Mode (B/S/H) for demonstration purposes, then parameterize DR.
@@ -92,11 +97,11 @@ def transform_to_signal(filename: str , zone : int):
     It returns a Pandas DataFrame.
 
     Inputs:
-    filename : str - the file location of the cleaned csv
+    filename : str or pd.DataFrame - the file location of the cleaned csv, or the cleaned DataFrame
     zone : int - the number of horizons to make a decision context over
     """
     
-    proto_signal = pd.read_csv(filename)
+    proto_signal = filename.copy() if isinstance(filename, pd.DataFrame) else pd.read_csv(filename)
 
     proto_signal["value"] = proto_signal["close"]
 
@@ -226,9 +231,9 @@ def transform_to_signal(filename: str , zone : int):
 
     ## Two 2D vectors that encode direction of change over the last few steps
     ## vB = [1, dBdt], vS = [1, dSdt]
-    proto_signal["vB_x"] = proto_signal["dBdt"].apply(lambda x: 1)
+    proto_signal["vB_x"] = 1.0
     proto_signal["vB_y"] = proto_signal["dBdt"].fillna(EPS_SMOOTHER)
-    proto_signal["vS_x"] = proto_signal["dSdt"].apply(lambda x: 1)
+    proto_signal["vS_x"] = 1.0
     proto_signal["vS_y"] = proto_signal["dSdt"].fillna(EPS_SMOOTHER)
 
     ## Argument Precursor
@@ -240,7 +245,7 @@ def transform_to_signal(filename: str , zone : int):
     proto_signal["Argt"] = (proto_signal["Dot"] ) / (proto_signal["normB"] * proto_signal["normS"])
     proto_signal["Argt"] = proto_signal["Argt"].clip(-1.0,1.0)
 
-    proto_signal["Theta"] = proto_signal["Argt"].apply(lambda x: np.degrees(np.arccos(x)))
+    proto_signal["Theta"] = np.degrees(np.arccos(proto_signal["Argt"]))
     proto_signal["Theta"] = proto_signal["Theta"].round(RFIGS)
 
     ## Crystallized Margin Mu Calculations
@@ -250,16 +255,19 @@ def transform_to_signal(filename: str , zone : int):
     proto_signal["Intensity"] = proto_signal["B"] + proto_signal["S"]
     proto_signal["Intensity"] = proto_signal["Intensity"].round(RFIGS)
 
-    proto_signal["Mu_s"] = proto_signal["Margin"].diff(SMALL_LAG).apply(lambda x : EPS_SMOOTHER if np.abs(x) < EPS_SMOOTHER else x) 
+    proto_signal["Mu_s"] = proto_signal["Margin"].diff(SMALL_LAG)
+    proto_signal["Mu_s"] = proto_signal["Mu_s"].mask(proto_signal["Mu_s"].abs() < EPS_SMOOTHER, EPS_SMOOTHER)
     ## Margin is rounded to RFIGS, so a diff below MU_FLOOR is zero. Floor at that resolution, not
     ## EPS_SMOOTHER, or Mu explodes to ~1e9 x Mu_s whenever Margin is unchanged over the zone.
-    proto_signal["Mu_l"] = proto_signal["Margin"].diff(zone).apply(lambda x : MU_FLOOR if np.abs(x) < MU_FLOOR else x)
+    proto_signal["Mu_l"] = proto_signal["Margin"].diff(zone)
+    proto_signal["Mu_l"] = proto_signal["Mu_l"].mask(proto_signal["Mu_l"].abs() < MU_FLOOR, MU_FLOOR)
 
     proto_signal["Mu"] = (proto_signal["Mu_s"] - proto_signal["Mu_l"] ) / proto_signal["Mu_l"]
     proto_signal["Mu"] = proto_signal["Mu"].round(RFIGS)
 
     ## Apply timestamp conversion
-    proto_signal["T"] = proto_signal["timestamp"].apply(convert_timestamp)
+    ts = pd.to_datetime(proto_signal["timestamp"])
+    proto_signal["T"] = ts.dt.hour * 3600 + ts.dt.minute * 60 + ts.dt.second
 
 
     ## Apply Decision Rule
@@ -275,3 +283,27 @@ def transform_to_signal(filename: str , zone : int):
 
     ## Intermediate columns designed to be healthy. Drop them, find cols healthy.
     return {"signal" : proto_signal[cols]}
+
+
+def causal_signal(cleaned : pd.DataFrame , zone : int , window : int = None):
+    """
+    causal_signal replays transform_to_signal the way the live engine runs it. Live computes the
+    signal on its last 8 * zone horizon bars and trades the last row. Here, at every bar t the
+    signal is computed on the trailing window of bars ending at t and only the last row is kept,
+    so nothing at t depends on bars after t. GS orthonormalization and B/S min-max scaling are
+    window-wide, which is why one transform_to_signal over a whole day is not causal.
+    It returns a JSON with the signal DataFrame, one row per bar from the first full window on.
+
+    Inputs:
+    cleaned : pd.DataFrame - cleaned horizon bars with timestamp, open, high, low, close, volume
+    zone : int - the number of horizons to make a decision context over
+    window : int - trailing bars per computation, defaults to the live window of 8 * zone
+    """
+
+    window = window or 8 * zone
+    cleaned = cleaned.reset_index(drop = True)
+
+    rows = [transform_to_signal(cleaned.iloc[t - window + 1 : t + 1], zone)["signal"].iloc[-1]
+            for t in range(window - 1, len(cleaned))]
+
+    return {"signal" : pd.DataFrame(rows).reset_index(drop = True).infer_objects()}

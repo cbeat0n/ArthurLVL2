@@ -21,7 +21,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 ## Internal Dependencies
 from utils.transform_cleaned import convert_to_tabular, clean_tabular
-from utils.transform_signal import transform_to_signal
+from utils.transform_signal import transform_to_signal, causal_signal
 from utils.granularity import horizon_seconds
 
 ## Backtesting Constraints
@@ -31,6 +31,7 @@ INSTRUMENT = "USD_JPY" # Instrument
 INTAKE = "S30" # Intake
 HORIZON = "M1Q0" # Horizon of form MXQN, e.g. M5Q2 for M5.5
 ZONE = 10 # # Zone
+CAUSAL = True # True: replay the live window per bar (no future data). False: one full-day signal (old, uses future data)
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "verificationhistoricaldata")
 
 ## Fake Budget System - Capital , Buy size notional , incremented long units.
@@ -186,9 +187,11 @@ def quote_bars(candles: list, horizon: str) -> pd.DataFrame:
 
 def simulate_trades(mySignal: pd.DataFrame) -> pd.DataFrame:
     """
-    simulate_trades is the backtesting trade simulator. A decision made on bar t is filled at the
-    open of bar t+1, buys at the ask and sells at the bid, so the spread is paid on every fill.
-    BUY adds a BLOTSIZE lot, SELL dumps 90% of the long FIFO, HOLD does nothing.
+    simulate_trades is the backtesting trade simulator, long only, pyramiding over a zone.
+    BUY adds a BLOTSIZE lot while the long is under ZONE lots. The first SELL after a BUY dumps
+    90% of the long FIFO (whole units), later SELLs in the same run do nothing until the next BUY.
+    HOLD does nothing. A decision on bar t is filled at the open of bar t+1, buys at the ask and
+    sells at the bid, so the spread is paid on every fill.
     It returns a pandas DataFrame with exactly one row per signal row.
 
     Inputs:
@@ -197,27 +200,35 @@ def simulate_trades(mySignal: pd.DataFrame) -> pd.DataFrame:
 
     ## One output row per signal row, so trades can be joined to the signal on index.
     cols = ["ts", "side", "units", "entry", "exit", "r", "open_units", "equity"]
+    max_units = ZONE * BLOTSIZE # Pyramid cap
     lots = [] # Open long lots as [units, entry], FIFO
+    armed = False # A BUY since the last dump, so the next SELL dumps
     realized = 0.0
     trades = []
 
     for _, r in mySignal.iterrows():
         hat = r["ActionHat"]  # 0=BUY,1=SELL,2=HOLD
+        open_units = sum(u for u, _ in lots)
         row = {"ts": r["timestamp"], "side": "HOLD", "units": np.nan, "entry": np.nan, "exit": np.nan, "r": np.nan}
 
         ## No next bar to fill on
         if hat in (0, 1) and (pd.isna(r["buy_px"]) or pd.isna(r["sell_px"])):
             row["side"] = "NOFILL"
 
-        ## Open/add long on BUY at next bar's ask
-        elif hat == 0:
+        ## Pyramid: add a lot at next bar's ask, up to ZONE lots
+        elif hat == 0 and open_units + BLOTSIZE <= max_units:
             lots.append([BLOTSIZE, r["buy_px"]])
+            armed = True
             row.update(side="BUY", units=BLOTSIZE, entry=r["buy_px"])
 
-        ## Dump on SELL at next bar's bid
-        elif hat == 1 and lots:
+        elif hat == 0:
+            armed = True
+            row["side"] = "CAPPED"
+
+        ## First SELL after buying: dump 90% at next bar's bid, whole units, FIFO
+        elif hat == 1 and armed and open_units > 0:
             px = r["sell_px"]
-            to_close = 0.90 * sum(u for u, _ in lots)
+            to_close = int(0.90 * open_units)
 
             ## Consume lots FIFO and accumulate the cost basis of the units actually closed
             remaining, closed_cost = to_close, 0.0
@@ -232,15 +243,16 @@ def simulate_trades(mySignal: pd.DataFrame) -> pd.DataFrame:
             avg_entry = closed_cost / to_close
             r_pnl = ((px - avg_entry) * to_close) / px
             realized += r_pnl
+            armed = False
             row.update(side="CLOSE", units=to_close, entry=avg_entry, exit=px, r=r_pnl)
 
-        ## SELL while flat => nothing to close
+        ## Further SELLs in the same run, or SELL with nothing bought => stay put
         elif hat == 1:
             row["side"] = "NOOP"
 
         ## Mark the open long at this bar's closing bid, what closing it now would get
         open_units = sum(u for u, _ in lots)
-        unrealized = sum(u * (r["mark_px"] - e) for u, e in lots) / r["mark_px"]
+        unrealized = sum(u * (r["mark_px"] - e) for u, e in lots) / r["mark_px"] if lots else 0.0
         row.update(open_units=open_units, equity=realized + unrealized)
         trades.append(row)
 
@@ -370,9 +382,14 @@ def run_historical_verification(start_date : str = START_DATE , end_date : str =
         tabular = convert_to_tabular({"candles": candles})
         cleaned = clean_tabular(tabular , horizon = HORIZON , intake = INTAKE)["cleaned"]
 
-        ## T2
-        signal = transform_to_signal(io.StringIO(cleaned.to_csv(index = False)) , ZONE)["signal"]
-        signal["timestamp"] = pd.to_datetime(signal["timestamp"], utc=True)
+        ## T2, causal keeps every bar; bars before the first full live window have no signal and HOLD
+        if CAUSAL:
+            causal = causal_signal(cleaned, ZONE)["signal"]
+            signal = cleaned[["timestamp"]].merge(causal, on="timestamp", how="left")
+            signal["ActionHat"] = signal["ActionHat"].fillna(2).astype(int)
+        else:
+            signal = transform_to_signal(io.StringIO(cleaned.to_csv(index = False)) , ZONE)["signal"]
+            signal["timestamp"] = pd.to_datetime(signal["timestamp"], utc=True)
         signal = signal.merge(quote_bars(candles, HORIZON), on="timestamp", how="left")
 
         ## Label Outcomes, last bar of the day has no label
