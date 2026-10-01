@@ -6,6 +6,9 @@ import pandas as pd # Library for data manipulation
 import re # Library for RegEx
 from datetime import datetime # Library for time objects
 
+## Internal Dependencies
+from utils.granularity import check_granularity, horizon_seconds
+
 def convert_to_tabular(candlebody : dict):
     """
     convert_to_tabular takes the JSON from fetch_candles and converts it to tabular form.
@@ -31,7 +34,7 @@ def convert_to_tabular(candlebody : dict):
     
     return tabular
 
-def clean_tabular(tabular : list ,  horizon : str):
+def clean_tabular(tabular : list ,  horizon : str , intake : str = "S5"):
     """
     clean_tabular takes the tabular JSON from convert_to_tabular and uses the horizon sample frequency
     to make a Pandas Dataframe that has candle information at horizon frequency, proprietarily constructed.
@@ -40,6 +43,7 @@ def clean_tabular(tabular : list ,  horizon : str):
     Inputs:
     tabular : list - tabular JSON from convert_to_tabular
     horizon : str - horizon sampling frequency for decision rules over zone , to be defined later
+    intake : str - OANDA granularity of the candles in tabular
     """
     
     cleaned_df = pd.DataFrame(tabular)
@@ -47,17 +51,10 @@ def clean_tabular(tabular : list ,  horizon : str):
     cleaned_df["timestamp"] = pd.to_datetime(cleaned_df["timestamp"] , utc = True , errors = 'coerce')
     cleaned_df = cleaned_df.sort_values('timestamp').set_index('timestamp')
 
-    ## Take Horizon of form MXQN e.g M20Q1 for M20.25 and split it via RegEx
-    parts = re.match(r"([A-Z]+\d+)([A-Z]+\d+)", horizon)
-    if parts:
-        M, Q = parts.groups()
-        
-
-    ## Number of seconds for horizon is calculated using modulo arithmetic.
-    ## For Sk and MXQN , seconds is ( 15 / k ) * (4 X + N) or 60 seconds per minute and 15 seconds per
-    ## quarter minute , hardcoded for S5. There are 3 df because intake, horizon, and zone, but the 
-    ## intake is a hardcoded value for division clarity.
-    horizon_rule = pd.Timedelta((15 / 5) * (4 * int(M[1:]) + int(Q[1:])) , "s")
+    ## Horizon of form MXQN e.g M20Q1 for M20.25 must be a whole number of intake candles.
+    ## Seconds for horizon is 60 X + 15 N, independent of intake since resampling is on clock time.
+    check_granularity(intake, horizon)
+    horizon_rule = pd.Timedelta(horizon_seconds(horizon), "s")
 
     ## Aggregation smooths out each pricing definition by its accorded aggregation
     agg = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}

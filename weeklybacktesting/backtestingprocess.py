@@ -29,7 +29,7 @@ START_DATE = "2025-09-01" # Start Date
 END_DATE = "2025-09-05" # End Date
 INSTRUMENT = "USD_JPY" # Instrument
 INTAKE = "S30" # Intake
-HORIZON = "M1" # Horizon
+HORIZON = "M1Q0" # Horizon of form MXQN, e.g. M5Q2 for M5.5
 ZONE = 10 # # Zone
 
 ## Fake Budget System - Capital , Buy size notional , incremented long units.
@@ -335,7 +335,7 @@ def run_historical_verification():
 
         ## T1
         tabular = convert_to_tabular({"candles": candles})
-        cleaned = clean_tabular(tabular , horizon = HORIZON)["cleaned"]
+        cleaned = clean_tabular(tabular , horizon = HORIZON , intake = INTAKE)["cleaned"]
 
         ## Label Outcomes
         labeled_df = generate_true_actions(cleaned) 
