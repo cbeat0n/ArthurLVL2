@@ -38,7 +38,7 @@ ZONE = 10 # # Zone
 ## a functionally infinite waterbed, but this needs to be taken from somewhere.
 ## This is not a MVP puzzle to solve. Very easy, takes time.
 ## It can also be taken from historical from data vendors, this also takes time.
-## Not a MVP puzzle. Bryan input also necessary.
+## Not a MVP puzzle.
 
 CAPITAL = 2500000 # Initial Capital
 BLOTSIZE = 5000 # Buying Lotsize
