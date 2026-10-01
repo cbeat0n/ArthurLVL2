@@ -60,9 +60,10 @@ def clean_tabular(tabular : list ,  horizon : str , intake : str = "S5"):
     agg = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}
 
     ## Resamples the cleaned dataframe to horizon sample frequency / decision frequency.
-    ## Uses right label and closed values, aggregation function on line 41.
+    ## OANDA candle times are open times. closed='left' keeps each bar to candles that have fully
+    ## closed by its right-hand label, so no bar contains a candle from its own future.
     horizon_df = (
-        cleaned_df.resample(horizon_rule, label='right', closed='right').agg(agg)
+        cleaned_df.resample(horizon_rule, label='right', closed='left').agg(agg)
           .dropna(how = 'any').reset_index())
     
     ## Timestamp uses Zulu sub seconds. Useful post MVP.
