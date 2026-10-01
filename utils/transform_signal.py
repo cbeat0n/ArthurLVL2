@@ -46,6 +46,7 @@ REGIME = {"ewmhalflife" : HALFLIFE, "zwindow" : Z_WINDOW, "rsi_p" : RSI_PERIOD, 
 EPS_SMOOTHER = 1e-9 # smoother small , around 1e-9
 MIN_PERIODS = 10 # rolling z min periods  , not tested yet , was max(10 , Z_WINDOW//5)
 RFIGS = 4 # figures used for rounding
+MU_FLOOR = 10**-RFIGS # smallest nonzero Margin diff, floor for the Mu denominator
 
 def decisionrule(sample : pd.Series):
     """
@@ -250,7 +251,9 @@ def transform_to_signal(filename: str , zone : int):
     proto_signal["Intensity"] = proto_signal["Intensity"].round(RFIGS)
 
     proto_signal["Mu_s"] = proto_signal["Margin"].diff(SMALL_LAG).apply(lambda x : EPS_SMOOTHER if np.abs(x) < EPS_SMOOTHER else x) 
-    proto_signal["Mu_l"] = proto_signal["Margin"].diff(zone).apply(lambda x : EPS_SMOOTHER if np.abs(x) < EPS_SMOOTHER else x)
+    ## Margin is rounded to RFIGS, so a diff below MU_FLOOR is zero. Floor at that resolution, not
+    ## EPS_SMOOTHER, or Mu explodes to ~1e9 x Mu_s whenever Margin is unchanged over the zone.
+    proto_signal["Mu_l"] = proto_signal["Margin"].diff(zone).apply(lambda x : MU_FLOOR if np.abs(x) < MU_FLOOR else x)
 
     proto_signal["Mu"] = (proto_signal["Mu_s"] - proto_signal["Mu_l"] ) / proto_signal["Mu_l"]
     proto_signal["Mu"] = proto_signal["Mu"].round(RFIGS)
