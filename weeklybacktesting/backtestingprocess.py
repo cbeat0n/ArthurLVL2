@@ -174,9 +174,9 @@ def simulate_trades_no_cost(mySignal: pd.DataFrame) -> pd.DataFrame:
     mySignal : pd.DataFrame - the signal dataframe to trade on
     """
 
+    ## Exactly one output row per signal row, so trades can be joined to the signal on index.
+    cols = ["ts", "side", "units", "entry", "exit", "r"]
     state_units = LONGUNITS
-    entry_px = None
-    side = None
     trades = []
 
     for _, r in mySignal.iterrows():
@@ -185,41 +185,46 @@ def simulate_trades_no_cost(mySignal: pd.DataFrame) -> pd.DataFrame:
 
         ## Open/add long on BUY
         if hat == 0:
-            
+
             ## Add units at px (book as new leg)
             units = BLOTSIZE
             state_units += units
-            trades.append({"ts" : r["timestamp"],"side":"BUY","units" : units , "entry":px,"exit":None,"r":None})
+            trades.append({"ts" : r["timestamp"],"side":"BUY","units" : units , "entry":px,"exit":np.nan,"r":np.nan})
 
         ## Dump on SELL
+        elif hat == 1 and state_units > 0:
+            to_close = min(0.90 * state_units , state_units)
+            state_units -= to_close
+
+            ## Go through BUY rows (FIFO), decrement their units and accumulate
+            ## the cost basis of the units actually being closed.
+            remaining = to_close
+            closed_cost = 0.0
+            for t in trades:
+                if t["side"] == "BUY" and t["units"] > 0:
+                    take = min(t["units"], remaining)
+                    t["units"] -= take
+                    closed_cost += take * t["entry"]
+                    remaining -= take
+                    if remaining <= 0:
+                        break
+
+            avg_entry = closed_cost / to_close
+            r_pnl = ((px - avg_entry) * to_close) / px
+            trades.append({"ts": r["timestamp"], "side":"CLOSE",
+                        "units": to_close, "entry": avg_entry, "exit": px, "r": r_pnl})
+
+        ## SELL while flat => nothing to close, still book a row to keep alignment
         elif hat == 1:
-            if state_units > 0:
-                to_close = min(0.90 * state_units , state_units)
-                state_units -= to_close
-
-                ## Go through BUY rows (FIFO) and decrement their units
-                remaining = to_close
-                for t in trades:
-                    if t["side"] == "BUY" and t["units"] > 0:
-                        take = min(t["units"], remaining)
-                        t["units"] -= take
-                        remaining -= take
-                        if remaining <= 0:
-                            break
-
-                ## Recalc avg_entry from what's still open
-                open_legs = [t for t in trades if t["side"]=="BUY" and t["units"] > 0]
-                if open_legs:
-                    avg_entry = sum(t["entry"] * t["units"] for t in open_legs) / sum(t["units"] for t in open_legs)
-                    r_pnl = ((px - avg_entry) * to_close) / px
-                    trades.append({"ts": r["timestamp"], "side":"CLOSE",
-                                "units": to_close, "entry": avg_entry, "exit": px, "r": r_pnl})
+            trades.append({"ts": r["timestamp"],"side": "NOOP","units": np.nan, "entry": np.nan , "exit": np.nan , "r": np.nan})
 
         ## HOLD => do nothing
         else:
-            trades.append({"ts": r["timestamp"],"side": "HOLD","units": None, "entry": None , "exit": None , "r": None})
+            trades.append({"ts": r["timestamp"],"side": "HOLD","units": np.nan, "entry": np.nan , "exit": np.nan , "r": np.nan})
 
-    return pd.DataFrame(trades)
+    ## Numeric columns stay float even on days with no closes (all NaN).
+    return pd.DataFrame(trades, columns=cols, index=mySignal.index).astype(
+        {"units": float, "entry": float, "exit": float, "r": float})
 
 
 def trade_vs_notrade_from_3x3(cm: np.ndarray) -> pd.DataFrame:
@@ -329,17 +334,18 @@ def run_historical_verification():
             continue
 
         ## T1
-        tabular = convert_to_tabular(candles)
+        tabular = convert_to_tabular({"candles": candles})
         cleaned = clean_tabular(tabular , horizon = HORIZON)["cleaned"]
 
         ## Label Outcomes
         labeled_df = generate_true_actions(cleaned) 
         
         ## T2
-        signal_matrix = transform_to_signal(io.StringIO(cleaned.to_csv(index = False)) , ZONE)
+        signal_matrix = transform_to_signal(io.StringIO(cleaned.to_csv(index = False)) , ZONE)["signal"]
 
-        ## Make trades, no cost no latency. With Frozen data, add costs and slippage. 
+        ## Make trades, no cost no latency. With Frozen data, add costs and slippage.
         trades = simulate_trades_no_cost(signal_matrix)
+        assert len(trades) == len(signal_matrix) == len(labeled_df), "trades/signal/labels misaligned"
 
         mask_close = trades["side"] == "CLOSE"
         rollwin = 5 # Rolling window of horizon
@@ -349,16 +355,16 @@ def run_historical_verification():
         ## Merge on index over timestamp.
         verification_df = pd.DataFrame({
             "ts": trades["ts"],
-            "t_sec": signal_matrix["t_sec"],
+            "t_sec": signal_matrix["T"],
             "value" : signal_matrix["value"],
             "volume": signal_matrix["volume"],
             "Buy" : signal_matrix["B"],
             "Sell": signal_matrix["S"],
-            "margin": signal_matrix["margin"],
-            "theta": signal_matrix["theta"],
-            "mu": signal_matrix["mu"],
+            "margin": signal_matrix["Margin"],
+            "theta": signal_matrix["Theta"],
+            "mu": signal_matrix["Mu"],
             "ActionHat": signal_matrix["ActionHat"],
-            "TrueAction": labeled_df["TrueAction"].iloc[:-1].values,  # use `.values` to avoid index mismatch
+            "TrueAction": labeled_df["TrueAction"].values,  # use `.values` to avoid index mismatch
             "side": trades["side"],
             "units": trades["units"],
             "entry": trades["entry"],
@@ -367,8 +373,11 @@ def run_historical_verification():
             "p": (trades["r"] > 0).astype(float).where(mask_close).rolling(rollwin).mean(),
             "G": trades["r"].where((trades["r"] > 0) & mask_close).rolling(rollwin).median(),
             "L": (-trades["r"]).where((trades["r"] <= 0) & mask_close).rolling(rollwin).median(),
-            "pl": trades["r"].where(mask_close).cumsum(),
+            "pl": trades["r"].where(mask_close).fillna(0.0).cumsum(),
         })
+
+        ## Last bar has no future_close, so its TrueAction is not a real label.
+        verification_df = verification_df.iloc[:-1]
 
         full_results.append(verification_df)
         dailypnl.append(verification_df["pl"].iloc[-1])
