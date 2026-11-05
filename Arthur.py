@@ -119,11 +119,13 @@ def enter_vault():
         elif value in OperationalState.__members__:
             GLOBAL_STATE["Arthur"].config.holdingbutton = OperationalState[value]
 
+    ## Acquire Market information
+    signal_filename = arthur._acquire_market()["location"]
+
     ## Arthur Ignition
     ignition_center = arthur._ignition_A()
 
-    ## Acquire Market information
-    signal_filename = arthur._acquire_market()["location"]
+    
     
     if ignition_center == OperationalState.OPEN:
         print(f"Currently open...")

@@ -7,12 +7,13 @@
 ## External Dependencies
 from __future__ import annotations
 import requests
-from datetime import datetime 
+from datetime import datetime , timedelta
 from datetime import time as dt_time
 from zoneinfo import ZoneInfo 
 import os
 import re
 import pandas as pd
+import numpy as np
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Event
 import time
@@ -31,6 +32,14 @@ from utils.generic import load_final_data
 
 from utils.granularity import horizon_seconds, intake_seconds, check_granularity
 from utils.http_helpers import OandaSession
+
+
+FILL = 0.00000000314      # transform_signal's warm-up fill value
+ERROR_LIMIT = 3           # consecutive bad outcomes before holding
+PRESSURE_Z = 4.0          # one-bar Margin change, in std devs of recent changes
+PRESSURE_MIN_BARS = 20    # bars of change needed before judging
+HOLD_HORIZONS = 3         # how long a hold lasts, in horizons
+
 
 class OperationalState(Enum):
     OPEN = "OPEN"
@@ -113,7 +122,8 @@ class Arthur():
         """
         
         self.config = cfg
-        
+        self.latest_signal = None
+
         num_managers = teamstructure["managers"] # Num managers, say 2
         num_traders = teamstructure["traders"] # Num traders, say 8
         
@@ -239,8 +249,8 @@ class Arthur():
         ## L1
         ## filename for the cleaned data
         if cleaned_tabular["cleaned"].empty :
-            return {"dict" : [] , "location" : ""
-            }
+            self.latest_signal = None
+            return {"dict" : [] , "location" : ""}
 
         filename = load_cleaned_data(self.config.base_dir, cleaned_tabular["cleaned"], 
                     candlebody["instrument"], cleaned_tabular["safe_ts"])["file"]
@@ -256,7 +266,7 @@ class Arthur():
         
         ## JS processing
         signal_dict = signal_matrix.to_dict(orient="records")
-
+        self.latest_signal = signal_matrix
         return {"dict" : signal_dict , "location" : signal_filename} 
     
 
@@ -292,16 +302,19 @@ class Arthur():
         start = time.time()
         
         ## Threading set up outside of cycle to only setup once, for concurrency
-        futures = [
-            self.config.threadpool.submit(self.trader_cycle,marketfile, m, t, kwargs)
-            for (m, t) in trader_pairs
-        ]
-        
+        futures = {
+        self.config.threadpool.submit(self.trader_cycle, marketfile, m, t, kwargs) : m
+        for (m, t) in trader_pairs
+        }
+
         cycletime = time.time() - start
 
         for f in as_completed(futures): # As completed, append cycles
-            market_cycles.append({"decision": f.result() , "cycletime" : cycletime})
-        
+            decision = f.result()
+            futures[f].record_outcome(decision)     # tell the manager how the trade went
+            market_cycles.append({"decision": decision , "cycletime" : cycletime})
+
+
 
         cycles = pd.DataFrame(market_cycles)
     
@@ -591,8 +604,64 @@ class RiskManager:
         self.arthur = arthur # RMs report to Arthur
         self.config = cfg # Config given from Arthur
         self.team = None # Team iterated during Arthur construction
-        
+        self.bad_streak = 0
+        self.hold_until = None
+        self.anomaly_reason = None
 
+    def record_outcome(self , decision : dict):
+    """
+    record_outcome counts consecutive bad trading outcomes for anomaly detection.
+    Inputs:
+    decision : dict - {"action" , "status"} returned by Trader.decision_loop
+    """
+    status = decision.get("status")
+    kind = status.get("status") if isinstance(status , dict) else None
+    self.bad_streak = self.bad_streak + 1 if kind in ("error" , "unknown" , "left_open") else 0
+
+    def _pressure_shift(self):
+        """
+        _pressure_shift returns a reason string if the newest one-bar change in Margin is extreme
+        compared with recent changes, else None.
+        """
+        sig = getattr(self.arthur , "latest_signal" , None)
+        if sig is None or "Margin" not in sig:
+            return None
+        margin = sig["Margin"]
+        margin = margin[(margin - FILL).abs() > 1e-12]       # drop warm-up fill rows
+        dm = margin.diff().dropna()
+        if len(dm) < PRESSURE_MIN_BARS:
+            return None
+        sd = dm.iloc[:-1].std()
+        if not sd or pd.isna(sd):
+            return None
+        z = abs(dm.iloc[-1]) / sd
+        return f"Margin moved {z:.1f} sd in one bar" if z > PRESSURE_Z else None
+
+    def detect_minor_anomaly(self) -> bool:
+        """
+        detect_minor_anomaly gives True while the manager should hold: repeated error or unknown
+        outcomes, or a sudden shift in buying / selling pressure. A hold lasts HOLD_HORIZONS horizons.
+        It returns a bool.
+        """
+        now = datetime.now(ZoneInfo("UTC"))
+
+        if self.hold_until is not None:
+            if now < self.hold_until:
+                return True
+            self.hold_until = None          # hold over, start fresh
+            self.bad_streak = 0
+            self.anomaly_reason = None
+
+        reason = (f"{self.bad_streak} consecutive bad outcomes"
+                if self.bad_streak >= ERROR_LIMIT else self._pressure_shift())
+
+        if reason:
+            self.anomaly_reason = reason
+            self.hold_until = now + timedelta(seconds = HOLD_HORIZONS * horizon_seconds(self.config.horizon))
+            print(f"[ANOMALY] {self.name} holding until {self.hold_until:%H:%M:%S} UTC: {reason}")
+            return True
+        return False
+    
     def in_budget(self): 
         """
         in_budget calculates whether or not the team under management is under budget.
@@ -662,12 +731,7 @@ def in_bhe_hours(self) -> bool:
     chicago = now_utc.astimezone(ZoneInfo("America/Chicago"))
     return chicago.weekday() < 5 and dt_time(6, 55) <= chicago.time() < dt_time(15, 0)
     
-    def detect_minor_anomaly(self):
-        """
-        holder
-        """
-        
-        return False # MVP will fly under radar for flash crash, liquidity vacuum, and black swans
+    
 
     def ignition(self):
         """
