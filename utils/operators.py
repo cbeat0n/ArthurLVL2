@@ -168,15 +168,17 @@ class Arthur():
         """
     
         states = [m.ignition() for m in self.managers]
-        if self.config.holdingbutton is None:
-            if any(s == OperationalState.OPEN for s in states):
-                return OperationalState.OPEN
-            elif all(s == OperationalState.CLOSED for s in states):
-                return OperationalState.CLOSED
-        else:
+
+        if self.config.holdingbutton is not None:
             print("Holding Switch In Use: \n")
             print(f"Manual State is {self.config.holdingbutton}")
             return self.config.holdingbutton
+
+        if any(s == OperationalState.OPEN for s in states):
+            return OperationalState.OPEN
+        if all(s == OperationalState.CLOSED for s in states):
+            return OperationalState.CLOSED
+        return OperationalState.HOLDING
     
     def trader_cycle(self , marketfile : str , manager : RiskManager , trader : Trader , kwargs : dict):
         """
@@ -437,13 +439,17 @@ class Trader:
         ## Function partially inherited by the trading platform
         closure = self.config.platform.close_trade(self.config.mode , trade_id)
 
-        if closure.get("orderFillTransaction"):
-            return {"status" : "filled" , "raw" : closure , 
-                    "order_id" : closure["orderFillTransaction"]["orderID"] , 
-                     "trade_id" : closure["orderFillTransaction"]["tradesClosed"][0]["tradeID"] }
-        elif closure.get("orderCancelTransaction"):
-            return {"status" : "left_open" , "raw" : closure , "order_id" : closure["orderCancelTransaction"]["orderID"]}
-        
+        fill = closure.get("orderFillTransaction")
+        if fill:
+            closed = fill.get("tradesClosed") or []
+            return {"status" : "filled" , "raw" : closure , "order_id" : fill.get("orderID") ,
+            "trade_id" : closed[0].get("tradeID") if closed else None}
+
+        cancel = closure.get("orderCancelTransaction")
+        if cancel:
+            return {"status" : "left_open" , "raw" : closure , "order_id" : cancel.get("orderID")}
+
+        return {"status" : "unknown" , "raw" : closure}
 
     def cancel_order(self , order_id):
         """
@@ -473,15 +479,18 @@ class Trader:
         ## Make order function partially inherited by platform.
         order = self.config.platform.make_order(self.config.mode , self.config.instrument , side , lot_size , reduce_only)
 
-        if order.get("orderFillTransaction") :
-            return {"status": "filled" , "raw" : order , 
-                    "order_id" : order["orderFillTransaction"]["orderID"],
-                    "trade_id" : order["orderFillTransaction"]["tradeOpened"]["tradeID"]}
-        
-        elif order.get("orderCancelTransaction"):
-            return {"status" : "killed" , "raw" : order , "order_id" : order["orderCancelTransaction"]["orderID"]}
-        
-        
+        fill = order.get("orderFillTransaction")
+        if fill:
+            opened = fill.get("tradeOpened") or {}
+            return {"status" : "filled" , "raw" : order , "order_id" : fill.get("orderID") ,
+                    "trade_id" : opened.get("tradeID")}
+
+        cancel = order.get("orderCancelTransaction")
+        if cancel:
+            return {"status" : "killed" , "raw" : order , "order_id" : cancel.get("orderID")}
+
+        return {"status" : "unknown" , "raw" : order}
+                
     def decision_loop(self , manager : RiskManager , market : pd.DataFrame):
         """
         decision_loop makes a single trade according to the decision call inside the signal matrix.
@@ -526,13 +535,8 @@ class Trader:
                 lot_size = (0.925 * currentLong) / len([t for m in manager.arthur.managers for t in m.team]) 
                 # Traders get equal volume, threading means arithmetic not geometric
 
-                order = self.make_order(side = -1 , lot_size= lot_size , reduce_only = True)
-
-                ## FOK , CON -- fill or kill, closed or not
-                if order["status"] == "filled":
-                    return {"action" : action , "status" : self.close_trade(order["trade_id"])}
-                else:
-                    return {"action" : action , "status" : order}
+                order = self.make_order(side = -1 , ...)  # delete this and the if/else below it
+                return self._execute(action , -1 , lot_size , True)
                 
             else:
                 return {"action" : action , "status" : "no stock, wait for BUY"}
@@ -550,15 +554,22 @@ class Trader:
             else: 
                 lot_size = bestsize
 
-            order = self.make_order(side = 1 , lot_size= lot_size , reduce_only = False)
- 
-            ## FOK, CON - fill or kill, closed or not
-            if order["status"] == "filled":
-                    return {"action" : action , "status" : self.close_trade(order["trade_id"])}
-            else:
-                    return {"action" : action , "status" : order}
+            order = self.make_order(side = 1 , ...)  # delete this and the if/else below it
+            return self._execute(action , 1 , lot_size , True)
 
-
+    def _execute(self , action : str , side : int , lot_size : float , reduce_only : bool):
+    """
+    _execute places one order, closes the trade if one was opened, and turns platform errors
+    into a logged status so one bad response doesn't crash the cycle. An 'error' status does
+    not mean the order failed: after a timeout it may have filled, so check the account.
+    """
+    try:
+        order = self.make_order(side = side , lot_size = lot_size , reduce_only = reduce_only)
+        if order["status"] == "filled" and order.get("trade_id"):
+            return {"action" : action , "status" : self.close_trade(order["trade_id"])}
+        return {"action" : action , "status" : order}
+    except (ValueError , requests.RequestException) as e:
+        return {"action" : action , "status" : {"status" : "error" , "detail" : str(e)}}
 
 class RiskManager:
    
