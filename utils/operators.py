@@ -609,14 +609,14 @@ class RiskManager:
         self.anomaly_reason = None
 
     def record_outcome(self , decision : dict):
-    """
-    record_outcome counts consecutive bad trading outcomes for anomaly detection.
-    Inputs:
-    decision : dict - {"action" , "status"} returned by Trader.decision_loop
-    """
-    status = decision.get("status")
-    kind = status.get("status") if isinstance(status , dict) else None
-    self.bad_streak = self.bad_streak + 1 if kind in ("error" , "unknown" , "left_open") else 0
+        """
+        record_outcome counts consecutive bad trading outcomes for anomaly detection.
+        Inputs:
+        decision : dict - {"action" , "status"} returned by Trader.decision_loop
+        """
+        status = decision.get("status")
+        kind = status.get("status") if isinstance(status , dict) else None
+        self.bad_streak = self.bad_streak + 1 if kind in ("error" , "unknown" , "left_open") else 0
 
     def _pressure_shift(self):
         """
