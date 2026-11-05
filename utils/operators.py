@@ -548,7 +548,7 @@ class Trader:
                 lot_size = (0.925 * currentLong) / len([t for m in manager.arthur.managers for t in m.team]) 
                 # Traders get equal volume, threading means arithmetic not geometric
 
-                order = self.make_order(side = -1 , ...)  # delete this and the if/else below it
+                
                 return self._execute(action , -1 , lot_size , True)
                 
             else:
@@ -567,7 +567,7 @@ class Trader:
             else: 
                 lot_size = bestsize
 
-            order = self.make_order(side = 1 , ...)  # delete this and the if/else below it
+            
             return self._execute(action , 1 , lot_size , True)
 
     def _execute(self , action : str , side : int , lot_size : float , reduce_only : bool):
