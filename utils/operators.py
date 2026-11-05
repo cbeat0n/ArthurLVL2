@@ -568,7 +568,7 @@ class Trader:
                 lot_size = bestsize
 
             
-            return self._execute(action , 1 , lot_size , True)
+            return self._execute(action , 1 , lot_size , False)
 
     def _execute(self , action : str , side : int , lot_size : float , reduce_only : bool):
         """
@@ -710,26 +710,26 @@ class RiskManager:
         return True                # Monday to Thursday: open
 
 
-def in_bhe_hours(self) -> bool:
-    """
-    in_bhe_hours gives True iff USD/JPY can be traded now. The FX market must be open,
-    and unless devtime is on, it must also be Mon-Fri 06:55-15:00 America/Chicago.
-    It returns a bool.
+    def in_bhe_hours(self) -> bool:
+        """
+        in_bhe_hours gives True iff USD/JPY can be traded now. The FX market must be open,
+        and unless devtime is on, it must also be Mon-Fri 06:55-15:00 America/Chicago.
+        It returns a bool.
 
-    Inputs:
-    self : self
-    """
+        Inputs:
+        self : self
+        """
 
-    now_utc = datetime.now(ZoneInfo("UTC"))
+        now_utc = datetime.now(ZoneInfo("UTC"))
 
-    if not self.fx_market_open(now_utc):
-        return False
+        if not self.fx_market_open(now_utc):
+            return False
 
-    if self.devtime:
-        return True
+        if self.devtime:
+            return True
 
-    chicago = now_utc.astimezone(ZoneInfo("America/Chicago"))
-    return chicago.weekday() < 5 and dt_time(6, 55) <= chicago.time() < dt_time(15, 0)
+        chicago = now_utc.astimezone(ZoneInfo("America/Chicago"))
+        return chicago.weekday() < 5 and dt_time(6, 55) <= chicago.time() < dt_time(15, 0)
     
     
 
