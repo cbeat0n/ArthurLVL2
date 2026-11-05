@@ -687,27 +687,27 @@ class RiskManager:
         return spent_today < budget # static lotsize reduces to trades today < maxnumtrades
 
     def fx_market_open(self, now_utc: datetime) -> bool:
-    """
-    fx_market_open gives True iff the spot FX week is open: from Sunday 17:00 to
-    Friday 17:00 America/New_York (the OANDA week). Using New York time keeps the
-    UTC open/close moving with daylight saving time (22:00 UTC in winter, 21:00 in summer).
-    It returns a bool.
+        """
+        fx_market_open gives True iff the spot FX week is open: from Sunday 17:00 to
+        Friday 17:00 America/New_York (the OANDA week). Using New York time keeps the
+        UTC open/close moving with daylight saving time (22:00 UTC in winter, 21:00 in summer).
+        It returns a bool.
 
-    Inputs:
-    now_utc : datetime - timezone-aware current time
-    """
+        Inputs:
+        now_utc : datetime - timezone-aware current time
+        """
 
-    ny = now_utc.astimezone(ZoneInfo("America/New_York"))
-    weekday, t = ny.weekday(), ny.time()
-    rollover = dt_time(17, 0)
+        ny = now_utc.astimezone(ZoneInfo("America/New_York"))
+        weekday, t = ny.weekday(), ny.time()
+        rollover = dt_time(17, 0)
 
-    if weekday == 4:           # Friday: open until 17:00 NY
-        return t < rollover
-    if weekday == 5:           # Saturday: closed
-        return False
-    if weekday == 6:           # Sunday: open from 17:00 NY
-        return t >= rollover
-    return True                # Monday to Thursday: open
+        if weekday == 4:           # Friday: open until 17:00 NY
+            return t < rollover
+        if weekday == 5:           # Saturday: closed
+            return False
+        if weekday == 6:           # Sunday: open from 17:00 NY
+            return t >= rollover
+        return True                # Monday to Thursday: open
 
 
 def in_bhe_hours(self) -> bool:
