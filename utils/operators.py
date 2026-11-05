@@ -29,6 +29,8 @@ from utils.generic import extract_signal_matrix , extract_final_matrix
 from utils.generic import finalize_records
 from utils.generic import load_final_data
 
+from utils.granularity import horizon_seconds, intake_seconds, check_granularity
+
 
 class OperationalState(Enum):
     OPEN = "OPEN"
@@ -217,17 +219,9 @@ class Arthur():
         ## ETL-Base
 
         ## Get the Horizon as minutes
-        parts = re.match(r"([A-Z]+\d+)([A-Z]+\d+)", self.config.horizon)
-        if parts:
-            M, Q = parts.groups()
-
-        horizon_minutes = float(M[1:]) + (float(int(Q[1:]) / 4))
-
-        ## Get the last 8 zones, equal to 
-        ## 8 * zone int * horizon in minutes * 60 s / min * (1/S5)
-        ## horizon_minutes is float i.e 9.5 but counter is integer
-        ## with .0 value so cast as int.
-        counter = int(8* self.config.zone * horizon_minutes * 60 * 0.2)
+        check_granularity(self.config.intake, self.config.horizon)
+        bars_per_horizon = horizon_seconds(self.config.horizon) // intake_seconds(self.config.intake)
+        counter = 8 * self.config.zone * bars_per_horizon
         
         ## E1
         ## {"candles" : candles , "instrument" : instrument, "intake" : intake}
@@ -238,7 +232,7 @@ class Arthur():
         ## T1
         ## Tabular list and then {"cleaned" : cleaned , "safe_ts" : safe_ts}
         tabular_data = convert_to_tabular(candlebody)
-        cleaned_tabular = clean_tabular(tabular_data , self.config.horizon)
+        cleaned_tabular = clean_tabular(tabular_data , self.config.horizon , self.config.intake)
 
         ## L1
         ## filename for the cleaned data
@@ -276,8 +270,8 @@ class Arthur():
         marketfile : str - the file location of the signal
         """
         if not marketfile:
-        print("No market data this cycle, skipping trades.")
-        return
+            print("No market data this cycle, skipping trades.")
+            return
 
         ## kwargs for context
         kwargs = {

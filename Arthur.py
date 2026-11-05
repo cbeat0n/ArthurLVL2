@@ -13,7 +13,7 @@ from flask import Flask, render_template, request # Library for common MWF
 from flask import jsonify , redirect, url_for # Library for common MWF
 import pandas as pd # Library for data manipulation
 import time # Library for time
-import os # Library for operating system communication
+import os , glob # Library for operating system communication
 from threading import Event # Library for flagging black swans
 from concurrent.futures import ThreadPoolExecutor # Threading for MVP, Multiprocessing for later
 
@@ -159,16 +159,27 @@ def visualize_market():
     None
     """
     
-    ## File of the signal for lightweight communication
-    filepath = request.args.get("signalFile")
-
-    ## JSON of the signal
-    ui_signal_matrix = pd.read_csv(filepath).to_dict("records")
-
     ## Instrument and Refresh Rate as Horizon
     ui_instrument = request.args.get("instrument")
     ui_horizon = request.args.get("horizon")
     ui_zone = request.args.get("zone")
+
+    if ui_instrument not in {"USD_JPY", "USD_CHF", "USD_MXN", "EUR_USD"}:
+        return "Unknown instrument", 400
+
+    ## Newest signal file for this instrument, not the one frozen in the URL
+    pattern = os.path.join(BASE_DIR, "signal", "*", f"signal_data_{ui_instrument}_*.csv")
+    files = glob.glob(pattern)
+    if not files:
+        return "No signal data yet", 404
+
+    filepath = max(files, key=os.path.getmtime)
+    print("Market View reading:", filepath)
+    
+    ## JSON of the signal
+    ui_signal_matrix = pd.read_csv(filepath).to_dict("records")
+
+    
 
     return render_template("market_view.html",
                            signalMatrix=ui_signal_matrix,
