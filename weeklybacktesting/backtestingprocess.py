@@ -23,6 +23,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.transform_cleaned import convert_to_tabular, clean_tabular
 from utils.transform_signal import transform_to_signal, causal_signal
 from utils.granularity import horizon_seconds
+from utils.http_helpers import OandaSession, json_or_raise
 
 ## Backtesting Constraints
 START_DATE = "2025-09-01" # Start Date
@@ -104,6 +105,10 @@ def fetch_historical_candles(instrument="USD_JPY", intake="S5", price="MBA", dat
     all_candles = []
     current_time = start_time
 
+
+    http = OandaSession()              
+    http.headers.update(headers)       # HTTP Session with http_helpers.py to guard against errors and add retries
+
     while current_time < end_time:
         chunk_start = current_time
         chunk_end = min(current_time + chunk_size, end_time)
@@ -116,13 +121,13 @@ def fetch_historical_candles(instrument="USD_JPY", intake="S5", price="MBA", dat
             "alignmentTimezone": timezone
         }
 
-        response = requests.get(url, headers=headers, params=params)
-
-        if response.status_code == 200:
-            candles = [c for c in response.json().get("candles", []) if c.get("complete", True)]
-            all_candles.extend(candles)
-        else:
-            raise ValueError(f"OANDA API error {response.status_code}: {response.text}")
+        response = http.get(url, params=params)
+        
+        body = json_or_raise(response, f"historical candles {chunk_start:%Y-%m-%d %H:%M}")
+        
+        candles = [c for c in body.get("candles", []) if c.get("complete", True)]
+        
+        all_candles.extend(candles)
 
         current_time += chunk_size
 

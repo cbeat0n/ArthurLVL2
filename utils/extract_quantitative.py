@@ -7,6 +7,9 @@
 import requests # Library for HTTP requests
 
 
+## Internal Dependencies
+from utils.http_helpers import json_or_raise
+
 
 def fetch_candles(mode : str , vendor , platform, instrument="USD_JPY", intake="S5", count=3600, price="M", timezone="UTC"):
     """
@@ -30,9 +33,10 @@ def fetch_candles(mode : str , vendor , platform, instrument="USD_JPY", intake="
 
     params = {"granularity" : intake,"count" : count,"price" : price,"alignmentTimezone" : timezone}
 
-    response = platform.config.session.get(url = url, params=params) # HTTP Request from url , headers , params
-
-    if response.status_code == 200: # Error handling
-        return {"candles" : response.json().get("candles" , []) , "instrument" : instrument , "intake" : intake}
-    else:
-        raise ValueError(f"Error {response.status_code}: {response.text}")
+    response = platform.config.session.get(url = url, params=params)
+    
+    body = json_or_raise(response, f"candles {instrument} {intake}")
+    
+    candles = [c for c in body.get("candles", []) if c.get("complete", True)]
+    
+    return {"candles" : candles , "instrument" : instrument , "intake" : intake}

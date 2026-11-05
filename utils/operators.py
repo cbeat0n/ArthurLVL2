@@ -30,7 +30,7 @@ from utils.generic import finalize_records
 from utils.generic import load_final_data
 
 from utils.granularity import horizon_seconds, intake_seconds, check_granularity
-
+from utils.http_helpers import OandaSession
 
 class OperationalState(Enum):
     OPEN = "OPEN"
@@ -80,7 +80,7 @@ class ArthurConfig():
         self.holdingbutton = None
 
         ## Requests Session for only one SSCS communication, lowering latency.
-        self.session = requests.Session()
+        self.session = OandaSession()      # was requests.Session()
         self.session.headers.update({
             "Content-Type": "application/json",
             "Authorization": f"Bearer {registry['platform']}",
