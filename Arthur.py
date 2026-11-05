@@ -73,7 +73,7 @@ def enter_vault():
 
         instrument = request.args.get("currencyPair", "USD_JPY")
         intake = request.args.get("intake", "S5")
-        horizon = request.args.get("horizon", "M1")
+        horizon = request.args.get("horizon", "M1Q0")
         zone = int(request.args.get("zone", "10"))
         managers = int(request.args.get("Managers", 1))
         traders = int(request.args.get("traders", 1))

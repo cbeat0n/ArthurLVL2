@@ -4,7 +4,7 @@
 ## External Dependencies
 import pandas as pd # Library for data manipulation
 import re # Library for RegEx
-from datetime import datetime # Library for time objects
+from datetime import datetime , timezone # Library for time objects
 
 ## Internal Dependencies
 from utils.granularity import check_granularity, horizon_seconds
@@ -45,6 +45,9 @@ def clean_tabular(tabular : list ,  horizon : str , intake : str = "S5"):
     horizon : str - horizon sampling frequency for decision rules over zone , to be defined later
     intake : str - OANDA granularity of the candles in tabular
     """
+
+    if not tabular:
+        return {"cleaned" : pd.DataFrame() , "safe_ts" : datetime.now(timezone.utc)}
     
     cleaned_df = pd.DataFrame(tabular)
 

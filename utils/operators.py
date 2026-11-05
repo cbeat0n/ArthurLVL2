@@ -242,6 +242,10 @@ class Arthur():
 
         ## L1
         ## filename for the cleaned data
+        if cleaned_tabular["cleaned"].empty :
+            return {"dict" : [] , "location" : ""
+            }
+
         filename = load_cleaned_data(self.config.base_dir, cleaned_tabular["cleaned"], 
                     candlebody["instrument"], cleaned_tabular["safe_ts"])["file"]
 
@@ -271,7 +275,10 @@ class Arthur():
         self : self 
         marketfile : str - the file location of the signal
         """
-        
+        if not marketfile:
+        print("No market data this cycle, skipping trades.")
+        return
+
         ## kwargs for context
         kwargs = {
         "t_o_e" : "order", "t_o_s" : 0,
