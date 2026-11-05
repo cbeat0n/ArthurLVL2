@@ -571,18 +571,18 @@ class Trader:
             return self._execute(action , 1 , lot_size , True)
 
     def _execute(self , action : str , side : int , lot_size : float , reduce_only : bool):
-    """
-    _execute places one order, closes the trade if one was opened, and turns platform errors
-    into a logged status so one bad response doesn't crash the cycle. An 'error' status does
-    not mean the order failed: after a timeout it may have filled, so check the account.
-    """
-    try:
-        order = self.make_order(side = side , lot_size = lot_size , reduce_only = reduce_only)
-        if order["status"] == "filled" and order.get("trade_id"):
-            return {"action" : action , "status" : self.close_trade(order["trade_id"])}
-        return {"action" : action , "status" : order}
-    except (ValueError , requests.RequestException) as e:
-        return {"action" : action , "status" : {"status" : "error" , "detail" : str(e)}}
+        """
+        _execute places one order, closes the trade if one was opened, and turns platform errors
+        into a logged status so one bad response doesn't crash the cycle. An 'error' status does
+        not mean the order failed: after a timeout it may have filled, so check the account.
+        """
+        try:
+            order = self.make_order(side = side , lot_size = lot_size , reduce_only = reduce_only)
+            if order["status"] == "filled" and order.get("trade_id"):
+                return {"action" : action , "status" : self.close_trade(order["trade_id"])}
+            return {"action" : action , "status" : order}
+        except (ValueError , requests.RequestException) as e:
+            return {"action" : action , "status" : {"status" : "error" , "detail" : str(e)}}
 
 class RiskManager:
    
