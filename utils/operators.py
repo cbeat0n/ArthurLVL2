@@ -561,6 +561,9 @@ class Trader:
 
 
 class RiskManager:
+   
+    devtime = True # devtime used to keep the trading bot open
+    
     def __init__(self , name : str , arthur : Arthur , cfg : ArthurConfig):
         """
         __init__ initializes a RiskManager. RiskManagers are controlled by Arthur.
@@ -577,7 +580,8 @@ class RiskManager:
         self.arthur = arthur # RMs report to Arthur
         self.config = cfg # Config given from Arthur
         self.team = None # Team iterated during Arthur construction
-    
+        
+
     def in_budget(self): 
         """
         in_budget calculates whether or not the team under management is under budget.
@@ -602,37 +606,50 @@ class RiskManager:
         
         return spent_today < budget # static lotsize reduces to trades today < maxnumtrades
 
-    def in_bhe_hours(self) -> bool:
-        """
-        in_bhe_hours gives True iff Mon–Fri, 06:55–15:00 (America/Chicago). Time calculated in UTC
-        but used for UTC 6 or Central.
-        It returns a bool.
-        
-        Inputs:
-        self : self
-        """
+    def fx_market_open(self, now_utc: datetime) -> bool:
+    """
+    fx_market_open gives True iff the spot FX week is open: from Sunday 17:00 to
+    Friday 17:00 America/New_York (the OANDA week). Using New York time keeps the
+    UTC open/close moving with daylight saving time (22:00 UTC in winter, 21:00 in summer).
+    It returns a bool.
 
-        
-        devtime = True
+    Inputs:
+    now_utc : datetime - timezone-aware current time
+    """
 
-        if devtime:
-            return True
+    ny = now_utc.astimezone(ZoneInfo("America/New_York"))
+    weekday, t = ny.weekday(), ny.time()
+    rollover = dt_time(17, 0)
 
-        now = datetime.now(ZoneInfo("UTC"))
-        start = dt_time(11, 55 , tzinfo = ZoneInfo("UTC"))  # 06:55 Chicago in UTC
-        end   = dt_time(20, 0 , tzinfo = ZoneInfo("UTC"))   # 15:00 Chicago in UTC
-        
+    if weekday == 4:           # Friday: open until 17:00 NY
+        return t < rollover
+    if weekday == 5:           # Saturday: closed
+        return False
+    if weekday == 6:           # Sunday: open from 17:00 NY
+        return t >= rollover
+    return True                # Monday to Thursday: open
 
-        
 
-        ## Weekend: Saturday=5, Sunday=6
-        if now.weekday() >= 5:
-            return False
-        
-        t = now.timetz()
-        
-        in_hours = start <= t < end
-        return in_hours
+def in_bhe_hours(self) -> bool:
+    """
+    in_bhe_hours gives True iff USD/JPY can be traded now. The FX market must be open,
+    and unless devtime is on, it must also be Mon-Fri 06:55-15:00 America/Chicago.
+    It returns a bool.
+
+    Inputs:
+    self : self
+    """
+
+    now_utc = datetime.now(ZoneInfo("UTC"))
+
+    if not self.fx_market_open(now_utc):
+        return False
+
+    if self.devtime:
+        return True
+
+    chicago = now_utc.astimezone(ZoneInfo("America/Chicago"))
+    return chicago.weekday() < 5 and dt_time(6, 55) <= chicago.time() < dt_time(15, 0)
     
     def detect_minor_anomaly(self):
         """
