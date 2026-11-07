@@ -38,9 +38,6 @@ REGISTRY = {"vendor" : None , "platform" : os.getenv("OANDADEMOAPIKEY")} # Can k
 VENDOR = DataVendor() # Blank because MVP uses Oanda
 
 
-
-
-
 @ArthurFlask.route("/", methods=["GET"])
 def home():
     """

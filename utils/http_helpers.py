@@ -28,7 +28,7 @@ class OandaSession(requests.Session):
 
         policy = Retry(total = retries , connect = retries , read = retries , status = retries ,
                        backoff_factor = 0.5 ,
-                       status_forcelist = (429 , 500 , 502 , 503 , 504) ,
+                       status_forcelist = (401 , 429 , 500 , 502 , 503 , 504) ,
                        allowed_methods = frozenset(["GET"]) ,
                        respect_retry_after_header = True ,
                        raise_on_status = False)
