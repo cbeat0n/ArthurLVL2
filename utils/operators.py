@@ -722,12 +722,13 @@ class RiskManager:
 
         now_utc = datetime.now(ZoneInfo("UTC"))
 
-        if self.devtime:
-            return True
+        
         
         if not self.fx_market_open(now_utc):
             return False
 
+        if self.devtime:
+            return True
         
 
         chicago = now_utc.astimezone(ZoneInfo("America/Chicago"))
