@@ -519,7 +519,7 @@ class Trader:
         
         decisioncall = latest["ActionHat"] # 0 B 1 S 2 H
 
-        action = ["BUY","SELL","HOLD"][decisioncall]
+        action = ["BUY","SELL","HOLD"][int(decisioncall)]
 
         ## MVP is make orders and trade them. Sell immediately. Crude but will work.
 
