@@ -147,44 +147,32 @@ def enter_vault():
                            refreshRate = arthur.config.horizon,
                            zone = arthur.config.zone)
 
+def latest_signal_records(instrument):
+    """Newest signal file for the instrument as a list of records, or None."""
+    if instrument not in {"USD_JPY", "USD_CHF", "USD_MXN", "EUR_USD"}:
+        return None
+    files = glob.glob(os.path.join(BASE_DIR, "signal", "*", f"signal_data_{instrument}_*.csv"))
+    if not files:
+        return None
+    df = pd.read_csv(max(files, key=os.path.getmtime))
+    return df.astype(object).where(df.notna(), None).to_dict("records")
+
 @ArthurFlask.route("/visualize/", methods=["GET"])
 def visualize_market():
-    """
-    visualize_market sets up a dynamic UI so that the guardian of Arthur can see the data
-    rendered by proprietary algorithm using proprietary UI.
-    It returns a rendered template.
+    instrument = request.args.get("instrument", "")
+    records = latest_signal_records(instrument)
+    if records is None:
+        return "No signal data yet or unknown instrument", 404
+    return render_template("market_view.html", signalMatrix=records, instrument=instrument,
+                           refreshRate=request.args.get("horizon", "M1Q0"),
+                           zone=request.args.get("zone"))
 
-    Inputs:
-    None
-    """
-    
-    ## Instrument and Refresh Rate as Horizon
-    ui_instrument = request.args.get("instrument")
-    ui_horizon = request.args.get("horizon")
-    ui_zone = request.args.get("zone")
-
-    if ui_instrument not in {"USD_JPY", "USD_CHF", "USD_MXN", "EUR_USD"}:
-        return "Unknown instrument", 400
-
-    ## Newest signal file for this instrument, not the one frozen in the URL
-    pattern = os.path.join(BASE_DIR, "signal", "*", f"signal_data_{ui_instrument}_*.csv")
-    files = glob.glob(pattern)
-    if not files:
-        return "No signal data yet", 404
-
-    filepath = max(files, key=os.path.getmtime)
-    print("Market View reading:", filepath)
-    
-    ## JSON of the signal
-    ui_signal_matrix = pd.read_csv(filepath).to_dict("records")
-
-    
-
-    return render_template("market_view.html",
-                           signalMatrix=ui_signal_matrix,
-                           instrument=ui_instrument,
-                           refreshRate=ui_horizon,
-                           zone = ui_zone)
+@ArthurFlask.route("/visualize/data", methods=["GET"])
+def visualize_data():
+    records = latest_signal_records(request.args.get("instrument", ""))
+    if records is None:
+        return jsonify({"error": "no signal data"}), 404
+    return jsonify(records)
 
 
 @ArthurFlask.route("/shutdownserver", methods=["POST"])

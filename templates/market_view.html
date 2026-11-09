@@ -1,8 +1,5 @@
-<!-- market_view.html is an agnostic framework to set up tabs that open up the 
- different markets by currency pair. On this tab, at least for now, the 
- trading information for Arthur LVL1 will be set. market_view.html will then 
-refresh at the rate of the granularity chosen whether this is S5 or something else.
--->
+<!-- market_view.html shows the newest signal for an instrument. It polls /visualize/data and
+ redraws in place, so a failed request never destroys the page and the chart keeps updating. -->
 
 <!DOCTYPE html>
 <html lang="en">
@@ -10,48 +7,23 @@ refresh at the rate of the granularity chosen whether this is S5 or something el
   <meta charset="UTF-8">
   <link rel="stylesheet" href="{{ url_for('static', filename='overhang.css') }}">
   <title>Arthur | Market View - {{ instrument }}</title>
-  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script> 
-  <!-- Static version, watch this parameter-->
-  
-  <script>
-    // Parse horizon like "M2Q1" → 2 + 0.25 = 2.25 minutes
-    function getRefreshMs(horizon) {
-      const match = horizon.match(/M(\d+)(?:Q(\d))?/);
-
-
-      const minutes = parseInt(match[1]);
-      const quarters = match[2] ? parseInt(match[2]) / 4 : 0;
-      const totalMinutes = minutes + quarters;
-
-      return totalMinutes * 60 * 1000;
-    }
-
-    const horizon = "{{ refreshRate }}"; // e.g. M2Q1, M5, etc.
-    const mvRefreshRate = getRefreshMs(horizon) + 1250; // small buffer
-    setTimeout(() => { location.reload(); }, mvRefreshRate);
-    console.log("Reloaded!")
-  </script>
-
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 </head>
 <body>
   <h1>Arthur | Market View</h1>
   <div class="subheader">
     Instrument: <strong>{{ instrument }}</strong> • Horizon: <strong>{{ refreshRate }}</strong> • Zone: <strong>{{ zone }}</strong>
+    • <span id="status">loading</span>
   </div>
 
-  <!-- Info Boxes -->
-  {% if signalMatrix and signalMatrix|length > 0 %}
-    {% set latest = signalMatrix[-1] %}
-    <div class="info-boxes">
-      <div class="info-box"><strong>Theta</strong><br>{{ latest.Theta | round(4) }}</div>
-      <div class="info-box"><strong>Mu</strong><br>{{ latest.Mu | round(4) }}</div>
-      <div class="info-box"><strong>B</strong><br>{{ latest.B | round(4) }}</div>
-      <div class="info-box"><strong>S</strong><br>{{ latest.S | round(4) }}</div>
-      <div class="info-box"><strong>Action</strong><br>{{ ["BUY", "SELL", "HOLD"][latest.ActionHat | int] }}</div>
-    </div>
-  {% endif %}
+  <div class="info-boxes">
+    <div class="info-box"><strong>Theta</strong><br><span id="ib-theta"></span></div>
+    <div class="info-box"><strong>Mu</strong><br><span id="ib-mu"></span></div>
+    <div class="info-box"><strong>B</strong><br><span id="ib-b"></span></div>
+    <div class="info-box"><strong>S</strong><br><span id="ib-s"></span></div>
+    <div class="info-box"><strong>Action</strong><br><span id="ib-action"></span></div>
+  </div>
 
-  <!-- Plots -->
   <div class="plot-container" id="plot-price"></div>
   <div class="plot-container" id="plot-B"></div>
   <div class="plot-container" id="plot-S"></div>
@@ -59,61 +31,88 @@ refresh at the rate of the granularity chosen whether this is S5 or something el
   <div class="plot-container" id="plot-BS-space"></div>
   <div class="plot-container" id="plot-UV-space"></div>
 
-  <!-- SignalMatrix JSON -->
-  <script type="application/json" id="signal-data">
-    {{ signalMatrix | tojson | safe }}
-  </script>
+  <script type="application/json" id="signal-data">{{ signalMatrix | tojson | safe }}</script>
 
   <script>
-    const signalData = JSON.parse(document.getElementById("signal-data").textContent);
-    // Extract series
-    const raw_timestamps = signalData.map(d => d.timestamp); // Raw TS
+    const INSTRUMENT = "{{ instrument }}";
+    const HORIZON = "{{ refreshRate }}";   // e.g. M1Q0, M2Q1
 
-    // Transform into HH:MM:SS strings
-    const t_stamp = raw_timestamps.map(ts => {
-      // Make sure it looks like an ISO timestamp, then split at 'T'
-      const timePart = ts.split("T")[1] || ts;
-      // Remove fractional seconds and Z (if present)
-      const hhmmss = timePart.replace("Z", "").split(".")[0];
-      return hhmmss; // returns "23:20:00"
-    });
+    // Horizon "M2Q1" -> 2.25 minutes -> ms. Falls back to 60 s if the string is unusable.
+    function getRefreshMs(horizon) {
+      const match = /M(\d+)(?:Q(\d))?/.exec(horizon || "");
+      if (!match) return 60000;
+      const minutes = parseInt(match[1]) + (match[2] ? parseInt(match[2]) / 4 : 0);
+      return minutes > 0 ? minutes * 60 * 1000 : 60000;
+    }
 
-    const price = signalData.map(d => d.value); // Value of Asset
-    const B = signalData.map(d => d.B); // Buying Pressure
-    const S = signalData.map(d => d.S); // Selling Pressure
-    const BS = signalData.map(d => d.Margin); // Margin = B-S
-    const theta = signalData.map(d => d.Theta); // Theta as MVP U
-    const mu = signalData.map(d => d.Mu); // Mu as MVP V
+    // Poll often enough to pick up a new bar soon after the vault writes it.
+    const POLL_MS = Math.min(getRefreshMs(HORIZON), 15000);
 
-    // Price vs Time
-    Plotly.newPlot('plot-price', [{
-      x: t_stamp, y: price, mode: 'lines', name: 'Price', line: { color: 'blue' }
-    }], { title: 'Price vs Time', xaxis: { title: 'Time' }, yaxis: { title: 'Price' } });
+    const ACTIONS = ["BUY", "SELL", "HOLD"];
+    let lastSignature = null;
 
-    // B vs Time
-    Plotly.newPlot('plot-B', [{
-      x: t_stamp, y: B, mode: 'lines', name: 'Buying Pressure', line: { color: 'green' }
-    }], { title: 'Buying Pressure vs Time', xaxis: { title: 'Time' }, yaxis: { title: 'B' } });
+    function hhmmss(ts) {
+      const s = String(ts);
+      const time = (s.split("T")[1] || s.split(" ")[1] || s);
+      return time.replace("Z", "").split("+")[0].split(".")[0];
+    }
 
-    // S vs Time
-    Plotly.newPlot('plot-S', [{
-      x: t_stamp, y: S, mode: 'lines', name: 'Selling Pressure', line: { color: 'red' }
-    }], { title: 'Selling Pressure vs Time', xaxis: { title: 'Time' }, yaxis: { title: 'S' } });
+    function setStatus(text) { document.getElementById("status").textContent = text; }
+    function fmt(v) { return (typeof v === "number") ? v.toFixed(4) : String(v); }
 
-    // B-S vs Time
-    Plotly.newPlot('plot-M', [{
-      x: t_stamp, y: BS, mode: 'lines', name: 'B-S', line: { color: 'purple' }
-    }], { title: 'B-S vs Time', xaxis: { title: 'Time' }, yaxis: { title: 'B-S' } });
+    function draw(data) {
+      if (!data || data.length === 0) return;
+      const t = data.map(d => hhmmss(d.timestamp));
+      const col = k => data.map(d => d[k]);
+      const last = data[data.length - 1];
 
-    // Dynamical space: (B,S)
-    Plotly.newPlot('plot-BS-space', [{
-      x: B, y: S, mode: 'markers', name: '(B,S)', marker: { color: 'orange', size: 6 }
-    }], { title: '(B,S) Space', xaxis: { title: 'B' }, yaxis: { title: 'S' } });
+      document.getElementById("ib-theta").textContent = fmt(last.Theta);
+      document.getElementById("ib-mu").textContent = fmt(last.Mu);
+      document.getElementById("ib-b").textContent = fmt(last.B);
+      document.getElementById("ib-s").textContent = fmt(last.S);
+      document.getElementById("ib-action").textContent = ACTIONS[parseInt(last.ActionHat)] || "?";
 
-    // Dynamical space: (Theta, Mu)
-    Plotly.newPlot('plot-UV-space', [{
-      x: theta, y: mu, mode: 'markers', name: '(theta,mu)', marker: { color: 'teal', size: 6 }
-    }], { title: '(Theta, Mu) Space', xaxis: { title: 'Theta' }, yaxis: { title: 'Mu' } });
+      const line = (id, x, y, name, color, title, ytitle) => Plotly.react(id,
+        [{ x: x, y: y, mode: "lines", name: name, line: { color: color } }],
+        { title: title, xaxis: { title: "Time" }, yaxis: { title: ytitle } });
+      const dots = (id, x, y, name, color, title, xt, yt) => Plotly.react(id,
+        [{ x: x, y: y, mode: "markers", name: name, marker: { color: color, size: 6 } }],
+        { title: title, xaxis: { title: xt }, yaxis: { title: yt } });
+
+      line("plot-price", t, col("value"), "Price", "blue", "Price vs Time", "Price");
+      line("plot-B", t, col("B"), "Buying Pressure", "green", "Buying Pressure vs Time", "B");
+      line("plot-S", t, col("S"), "Selling Pressure", "red", "Selling Pressure vs Time", "S");
+      line("plot-M", t, col("Margin"), "B-S", "purple", "B-S vs Time", "B-S");
+      dots("plot-BS-space", col("B"), col("S"), "(B,S)", "orange", "(B,S) Space", "B", "S");
+      dots("plot-UV-space", col("Theta"), col("Mu"), "(theta,mu)", "teal", "(Theta, Mu) Space", "Theta", "Mu");
+    }
+
+    function show(data, note) {
+      const last = data[data.length - 1];
+      const signature = data.length + "|" + JSON.stringify(last);
+      if (signature !== lastSignature) { draw(data); lastSignature = signature; }
+      setStatus(note + " " + new Date().toLocaleTimeString() + " • last bar " + hhmmss(last.timestamp));
+    }
+
+    async function poll() {
+      try {
+        const r = await fetch("/visualize/data?instrument=" + encodeURIComponent(INSTRUMENT), { cache: "no-store" });
+        if (r.ok) {
+          const data = await r.json();
+          if (data.length) show(data, "checked");
+        } else {
+          setStatus("no data yet (" + r.status + "), retrying");
+        }
+      } catch (e) {
+        setStatus("server unreachable, retrying");
+      }
+      setTimeout(poll, POLL_MS);
+    }
+
+    // First paint from the data the server embedded, then keep polling.
+    const first = JSON.parse(document.getElementById("signal-data").textContent);
+    if (first.length) show(first, "loaded");
+    setTimeout(poll, POLL_MS);
   </script>
 </body>
 </html>
