@@ -78,68 +78,100 @@ def scheduled_cycle():
     return True
 
 
+@ArthurFlask.route("/start", methods = ["POST"])
+def start_arthur():
+    """
+    start_arthur builds Arthur and starts its scheduler from the homepage form. It is POST only, so a
+    refresh, prefetch or old link can't start the bot. Live mode needs the confirmation box ticked.
+    Trading then runs on the scheduler's own thread, once per horizon, with no page open.
+    It redirects to the dashboard, or returns a 400 for a bad form.
+
+    Inputs:
+    None
+    """
+
+    global GLOBAL_STATE , BASE_DIR , VENDOR , REGISTRY
+
+    with START_LOCK: # two submits at once must not start two bots
+
+        if GLOBAL_STATE["Arthur"] is not None: # already running, never rebuild it
+            return redirect(url_for("enter_vault") , code = 303)
+
+        form = request.form
+        instrument = form.get("currencyPair", "USD_JPY")
+        intake = form.get("intake", "S5")
+        horizon = form.get("horizon", "M1Q0")
+        mode = form.get("mode", "Demo")
+
+        try:
+            zone = int(form.get("zone", "10"))
+            managers = int(form.get("Managers", 1))
+            traders = int(form.get("traders", 1))
+        except ValueError:
+            return "zone, Managers and traders must be whole numbers.", 400
+
+        if zone < 1 or managers < 1 or traders < 1:
+            return "zone, Managers and traders must be at least 1.", 400
+
+        if mode not in ("Demo", "Live"):
+            return f"Unknown mode {mode!r}.", 400
+
+        if mode == "Live" and form.get("confirmLive") != "yes":
+            return "Live mode uses real money. Go back and tick the confirmation box.", 400
+
+        ## Refuse a bad instrument or pairing now, not inside the scheduler thread every cycle
+        if instrument not in SUPPORTED:
+            return f"Unsupported instrument {instrument!r}. Supported: {', '.join(SUPPORTED)}", 400
+        try:
+            check_granularity(intake, horizon)
+        except ValueError as e:
+            return str(e), 400
+
+        ## Local variable to change it without scope violation
+        platform = OandaTrading(REGISTRY["platform"])
+
+        config = ArthurConfig(
+            base_dir=BASE_DIR,
+            mode=mode,
+            vendor=VENDOR,
+            platform=platform,
+            registry=REGISTRY,
+            instrument=instrument,
+            intake=intake,
+            horizon=horizon,
+            zone=zone,
+            threadpool=ThreadPoolExecutor(max_workers = managers*traders), # Static, dynamic later
+            state=OperationalState.OPEN
+        )
+
+        ## Make Platform & Arthur Instance
+        platform.set_config(config)
+        platform.set_instrument(instrument) # Hardcoded instrument
+        GLOBAL_STATE["Arthur"] = Arthur(cfg = config , teamstructure = {"managers" : managers , "traders" : traders})
+        GLOBAL_STATE["State"] = config.operationalstate
+
+        ## One cycle per horizon, on the horizon boundary, until the process ends
+        GLOBAL_STATE["Scheduler"] = CycleScheduler(period_s = horizon_seconds(horizon), run_cycle = scheduled_cycle)
+        GLOBAL_STATE["Scheduler"].start()
+
+    return redirect(url_for("enter_vault") , code = 303)
+
+
 @ArthurFlask.route("/accounting", methods = ["GET","POST"])
 def enter_vault():
     """
-    enter_vault starts Arthur and its scheduler on the first visit, then shows the dynamic
-    accounting dashboard. Trading runs on the scheduler's own thread, once per horizon, so it
-    no longer depends on this page being open or reloading.
+    enter_vault shows the dynamic accounting dashboard and handles the 4 way switch. It never
+    starts or runs anything: Arthur is started by /start, and trades on the scheduler's thread.
+    With no bot running it sends you back to the homepage.
     It returns a rendered template.
 
     Inputs:
     None
     """
-    
-    global GLOBAL_STATE , BASE_DIR , VENDOR , REGISTRY
-
-    with START_LOCK: # two first visits at once must not start two bots
-
-        if GLOBAL_STATE["Arthur"] is None:
-
-            instrument = request.args.get("currencyPair", "USD_JPY")
-            intake = request.args.get("intake", "S5")
-            horizon = request.args.get("horizon", "M1Q0")
-            zone = int(request.args.get("zone", "10"))
-            managers = int(request.args.get("Managers", 1))
-            traders = int(request.args.get("traders", 1))
-            mode = request.args.get("mode", "Demo")
-
-            ## Refuse a bad instrument or pairing now, not inside the scheduler thread every cycle
-            if instrument not in SUPPORTED:
-                return f"Unsupported instrument {instrument!r}. Supported: {', '.join(SUPPORTED)}", 400
-            try:
-                check_granularity(intake, horizon)
-            except ValueError as e:
-                return str(e), 400
-
-            ## Local variable to change it without scope violation
-            platform = OandaTrading(REGISTRY["platform"])
-
-            config = ArthurConfig(
-                base_dir=BASE_DIR,
-                mode=mode,
-                vendor=VENDOR,
-                platform=platform,
-                registry=REGISTRY,
-                instrument=instrument,
-                intake=intake,
-                horizon=horizon,
-                zone=zone,
-                threadpool=ThreadPoolExecutor(max_workers = managers*traders), # Static, dynamic later
-                state=OperationalState.OPEN
-            )
-            
-            ## Make Platform & Arthur Instance
-            platform.set_config(config)
-            platform.set_instrument(instrument) # Hardcoded instrument
-            GLOBAL_STATE["Arthur"] = Arthur(cfg = config , teamstructure = {"managers" : managers , "traders" : traders})
-            GLOBAL_STATE["State"] = config.operationalstate
-
-            ## One cycle per horizon, on the horizon boundary, until the process ends
-            GLOBAL_STATE["Scheduler"] = CycleScheduler(period_s = horizon_seconds(horizon), run_cycle = scheduled_cycle)
-            GLOBAL_STATE["Scheduler"].start()
 
     arthur = GLOBAL_STATE["Arthur"]
+    if arthur is None: # nothing started yet: view only, so go to the form
+        return redirect("/")
 
     ## 4 way switch, not manual in hand switch
     if request.method == "POST":

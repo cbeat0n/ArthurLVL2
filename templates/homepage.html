@@ -23,7 +23,7 @@
       <h1 class="hero-title">-What are you interested in today, Sir?-</h1>
 
       <!-- Control Panel -->
-      <form method="GET" action="/accounting" target="_blank">
+      <form method="POST" action="/start" target="_blank">
         <!-- Single FX pair -->
         <label for="currencyPair">FX Pair:</label>
         <select name="currencyPair" id="currencyPair" required>
@@ -123,6 +123,9 @@
           <option value="Demo" selected>Demo</option>
           <option value="Live">Live</option>
         </select>
+
+        <!-- Live mode is real money, so it needs this ticked -->
+        <label for="confirmLive"><input type="checkbox" name="confirmLive" id="confirmLive" value="yes"> Live uses real money. Tick to confirm.</label>
       
       <!-- Vault Button -->
         <button type ="submit">Vault & Overhang Access</button>
