@@ -31,7 +31,7 @@ from utils.generic import finalize_records
 from utils.generic import load_final_data
 
 from utils.granularity import horizon_seconds, intake_seconds, check_granularity
-from utils.http_helpers import OandaSession
+from utils.http_helpers import OandaSession , json_or_raise
 
 
 FILL = 0.00000000314      # transform_signal's warm-up fill value
@@ -532,25 +532,18 @@ class Trader:
             ## and works on stationary reverted to mean liquid FX pair like USDJPY.
 
             
-            accountdetailsurl = self.config.platform.make_url(self.config.mode , "account",1)
-            accountdetails = self.config.session.get(url = accountdetailsurl)
-            
-            account = accountdetails.json()["account"]
-            
-            positions = account["positions"]
-            fxidx = [p["instrument"] for p in positions].index(self.config.instrument)
-            
-            pointedposition = positions[fxidx]
-            
-            currentLong = float(pointedposition["long"]["units"])
+            try:
+                currentLong = self._long_units()
+            except (ValueError , requests.RequestException) as e:
+                return {"action" : action , "status" : {"status" : "error" , "detail" : str(e)}}
 
             if currentLong > 1000: # Crank minimum, hold onto very small min position
-                lot_size = (0.925 * currentLong) / len([t for m in manager.arthur.managers for t in m.team]) 
+                num_traders = max(1 , len([t for m in manager.arthur.managers for t in m.team]))
+                lot_size = (0.925 * currentLong) / num_traders
                 # Traders get equal volume, threading means arithmetic not geometric
 
-                
                 return self._execute(action , -1 , lot_size , True)
-                
+
             else:
                 return {"action" : action , "status" : "no stock, wait for BUY"}
             
@@ -570,14 +563,38 @@ class Trader:
             
             return self._execute(action , 1 , lot_size , False)
 
+    def _long_units(self) -> float:
+        """
+        _long_units gives the units this trader is long in its instrument right now,
+        0.0 if the account holds no position in it. OANDA lists an instrument under
+        positions only once it has been traded, so a missing name means no position.
+        It returns a float.
+
+        Inputs:
+        self : self
+        """
+
+        url = self.config.platform.make_url(self.config.mode , "account" , 1)
+        body = json_or_raise(self.config.session.get(url = url) , "account details")
+
+        for position in body.get("account" , {}).get("positions" , []):
+            if position.get("instrument") == self.config.instrument:
+                return float((position.get("long") or {}).get("units") or 0)
+        return 0.0
+
     def _execute(self , action : str , side : int , lot_size : float , reduce_only : bool):
         """
         _execute places one order, closes the trade if one was opened, and turns platform errors
         into a logged status so one bad response doesn't crash the cycle. An 'error' status does
         not mean the order failed: after a timeout it may have filled, so check the account.
         """
+        ## OANDA takes whole units for FX. Round down so a sell never exceeds what was meant.
+        units = int(lot_size)
+        if units < 1:
+            return {"action" : action , "status" : {"status" : "skipped" , "detail" : f"lot size {lot_size} is under 1 unit"}}
+
         try:
-            order = self.make_order(side = side , lot_size = lot_size , reduce_only = reduce_only)
+            order = self.make_order(side = side , lot_size = units , reduce_only = reduce_only)
             if order["status"] == "filled" and order.get("trade_id"):
                 return {"action" : action , "status" : self.close_trade(order["trade_id"])}
             return {"action" : action , "status" : order}

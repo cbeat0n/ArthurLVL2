@@ -155,6 +155,7 @@ def latest_signal_records(instrument):
     if not files:
         return None
     df = pd.read_csv(max(files, key=os.path.getmtime))
+    df = df.replace([float("inf"), float("-inf")], float("nan"))   # JSON has no Infinity
     return df.astype(object).where(df.notna(), None).to_dict("records")
 
 @ArthurFlask.route("/visualize/", methods=["GET"])
