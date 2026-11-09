@@ -37,6 +37,7 @@ ArthurFlask = Flask(__name__)
 GLOBAL_STATE = {"Arthur" : None , "Scheduler" : None} # Arthur, its scheduler and state start at None
 START_LOCK = Lock() # one startup at a time
 STOP_WHEN_CLOSED = True # True: stop the server when CLOSED. False: stay up and wait for the next cycle
+ALLOW_LIVE = False # True: the homepage form may start Live mode. Keep False until Live keys, account and trading are ready. Change it here only, never from a URL or form.
 BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),"data")
 REGISTRY = {"vendor" : None , "platform" : os.getenv("OANDADEMOAPIKEY")} # Can keep .env separate
 VENDOR = DataVendor() # Blank because MVP uses Oanda
@@ -53,7 +54,7 @@ def home():
     None
     """
     
-    return render_template("homepage.html")
+    return render_template("homepage.html", allowLive = ALLOW_LIVE)
 
 
 def stop_server():
@@ -104,7 +105,8 @@ def scheduled_cycle():
 def start_arthur():
     """
     start_arthur builds Arthur and starts its scheduler from the homepage form. It is POST only, so a
-    refresh, prefetch or old link can't start the bot. Live mode needs the confirmation box ticked.
+    refresh, prefetch or old link can't start the bot. Live mode is off unless ALLOW_LIVE is True in this
+    file, and even then it needs the confirmation box ticked.
     Trading then runs on the scheduler's own thread, once per horizon, with no page open.
     It redirects to the dashboard, or returns a 400 for a bad form.
 
@@ -137,6 +139,9 @@ def start_arthur():
 
         if mode not in ("Demo", "Live"):
             return f"Unknown mode {mode!r}.", 400
+
+        if mode == "Live" and not ALLOW_LIVE:
+            return "Live mode is switched off in Arthur.py (ALLOW_LIVE = False).", 403
 
         if mode == "Live" and form.get("confirmLive") != "yes":
             return "Live mode uses real money. Go back and tick the confirmation box.", 400

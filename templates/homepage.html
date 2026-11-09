@@ -121,11 +121,13 @@
         <label for="mode">Mode:</label>
         <select name="mode" id="mode" required>
           <option value="Demo" selected>Demo</option>
-          <option value="Live">Live</option>
+          {% if allowLive %}<option value="Live">Live</option>{% endif %}
         </select>
 
+        {% if allowLive %}
         <!-- Live mode is real money, so it needs this ticked -->
         <label for="confirmLive"><input type="checkbox" name="confirmLive" id="confirmLive" value="yes"> Live uses real money. Tick to confirm.</label>
+        {% endif %}
       
       <!-- Vault Button -->
         <button type ="submit">Vault & Overhang Access</button>
