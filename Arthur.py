@@ -40,7 +40,7 @@ STOP_WHEN_CLOSED = True # True: stop the server when CLOSED. False: stay up and 
 BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),"data")
 REGISTRY = {"vendor" : None , "platform" : os.getenv("OANDADEMOAPIKEY")} # Can keep .env separate
 VENDOR = DataVendor() # Blank because MVP uses Oanda
-
+ARTHUR_SERVER="dev"
 
 @ArthurFlask.route("/", methods=["GET"])
 def home():
@@ -205,8 +205,15 @@ def enter_vault():
 
     ## Accounting Information, plus how the scheduler is doing
     account_summary = arthur._accounting()["summary"]
+    ## What each manager is doing about anomalies, and whether the Chicago hours window is ignored
+    manager_cards = {"Devtime (Chicago hours ignored)" : "on" if arthur.managers[0].devtime else "off"}
+    for m in arthur.managers:
+        manager_cards[f"{m.name} hold"] = (f"until {m.hold_until:%H:%M:%S} UTC: {m.anomaly_reason}"
+                                           if m.hold_until else "none")
+
     account_summary = {**account_summary ,
                        "Bot state" : arthur.config.operationalstate.value ,
+                       **manager_cards ,
                        **GLOBAL_STATE["Scheduler"].status()}
 
     return render_template("vault_storage.html", 
@@ -246,13 +253,14 @@ def visualize_data():
 
 
 ## Werkzeug for Development (slower, construction, setting up skeleton into chassis)
-# if __name__ == "__main__":
-#     ArthurFlask.run(debug=False)
-
 ## Waitress for Production -> Move to Gunicorn and Docker for full multiple computers
 ## When basis is ready, Waitress is stateless and spits out every last incorrect assertion.
+
 if __name__ == "__main__":
-    from waitress import serve
-    serve(ArthurFlask, host="127.0.0.1", port=5000, threads=6)
-
-
+    print("Server =", ARTHUR_SERVER, flush=True)
+    if ARTHUR_SERVER == "dev":
+        ArthurFlask.run(debug=False)   # Werkzeug: banner, readable errors
+    else:
+        from waitress import serve
+        print("Arthur is up at http://127.0.0.1:5000/  (Ctrl+C to stop)", flush=True)
+        serve(ArthurFlask, host="127.0.0.1", port=5000, threads=6)

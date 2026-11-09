@@ -637,7 +637,7 @@ class Trader:
 
 class RiskManager:
    
-    devtime = True # devtime used to keep the trading bot open
+    devtime = True # devtime used to keep the trading bot open. Set per instance from the mode, never True in Live.
     
     def __init__(self , name : str , arthur : Arthur , cfg : ArthurConfig):
         """
@@ -655,6 +655,7 @@ class RiskManager:
         self.arthur = arthur # RMs report to Arthur
         self.config = cfg # Config given from Arthur
         self.team = None # Team iterated during Arthur construction
+        self.devtime = (cfg.mode != "Live") # Demo trades outside Chicago hours for testing, Live never does
         self.bad_streak = 0
         self.hold_until = None
         self.anomaly_reason = None
@@ -1082,11 +1083,12 @@ class OandaTrading(Platform):
 
     def cancel_order(self , mode : str , order_id : str):
         """
-        cancel_order cancels an order on the OANDA REST API. It is blank because MVP does not cancel orders.
-        It is left incomplete.
+        cancel_order cancels an order on the OANDA REST API. It is not built yet: it comes with
+        the emergency stop and pyramiding. It raises instead of returning None, so nothing can
+        rely on a cancel that never happened.
         """
         
-        return None
+        raise NotImplementedError("cancel_order is not built yet. It comes with the emergency stop.")
 
     def make_order(self, mode : str, instrument : str , side : int, lot_size : int , reduce_only : bool = False):
         """
