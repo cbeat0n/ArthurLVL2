@@ -209,13 +209,18 @@ class Arthur():
         decision = trader.decision_loop(manager, market) # {"action" : action , "status" : status}
 
         ## Every horizon: observe , measure , decide , act , then record. (OODA with logging)
-        logs = extract_final_matrix(self.config.base_dir, trader) # A Trader records his results every cycle
-        if logs["exists"]:
-            final_matrix = finalize_records(market, trader,manager ,  record=logs["final"], **kwargs)["finalrecord"]
-        else:
-            final_matrix = finalize_records(market, trader, manager ,  **kwargs)["finalrecord"]
+        ## The decision is already made (and any order sent) by here, so a record that can't be
+        ## finalized is logged and skipped. It never undoes or hides the decision.
+        try:
+            logs = extract_final_matrix(self.config.base_dir, trader) # A Trader records his results every cycle
+            if logs["exists"]:
+                final_matrix = finalize_records(market, trader,manager ,  record=logs["final"], **kwargs)["finalrecord"]
+            else:
+                final_matrix = finalize_records(market, trader, manager ,  **kwargs)["finalrecord"]
 
-        load_final_data(final_matrix, logs["file"]) # CRUD for final records
+            load_final_data(final_matrix, logs["file"]) # CRUD for final records
+        except Exception as e:
+            print(f"[WARN] {trader.name}: record skipped this cycle ({type(e).__name__}: {e})")
         
         return decision # log JSON of action and status of action
     

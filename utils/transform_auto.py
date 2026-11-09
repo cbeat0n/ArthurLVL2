@@ -12,6 +12,7 @@ from datetime import datetime , timezone # Library for time objects
 ## Internal Dependencies
 from utils.transform_signal import REGIME 
 from weeklybacktesting.backtestingprocess import pip_size
+from utils.http_helpers import json_or_raise # raises OandaError on bad status or non-JSON body
 
 ## Columns inside the finalized matrix.
 COLS = ["accountID","name" ,"riskmanager","ts", "d_int" , "d_hor" , "d_zone", "instrument" ,"regime" , "B", "S" ,"Margin","Intensity", "U" , "V" , "UxV", 
@@ -22,11 +23,61 @@ COLS = ["accountID","name" ,"riskmanager","ts", "d_int" , "d_hor" , "d_zone", "i
 
 
 
+
+def _vendor_state(trader , used_endpoints : dict):
+    """
+    _vendor_state asks the platform for everything finalize_records needs about the trader today.
+    The session already retries GET requests, so any failure that reaches here is real.
+    Any bad status or non-JSON body raises OandaError (a ValueError), and nothing is returned half done.
+
+    Input:
+    trader : Trader - the trader observing and measuring
+    used_endpoints : dict - the endpoint and subendpoint names to build urls with
+    It returns a dict of the raw vendor data.
+    """
+
+    cfg = trader.config
+    acct = cfg.platform.accountID
+
+    def url(end , sub):
+        return cfg.platform.make_url(cfg.mode , used_endpoints[end] , used_endpoints[sub] , accountID = acct)
+
+    def get(end , sub , what , **params):
+        return json_or_raise(cfg.session.get(url = url(end , sub) , params = params or None) , what)
+
+    ## Midnight UTC today
+    now = datetime.now(timezone.utc)
+    midnight_utc_today = datetime(year = now.year , month = now.month , day = now.day , tzinfo = timezone.utc)
+
+    orders = get("t_o_e" , "t_o_s" , "today's filled orders" , state = "FILLED" , count = 200)["orders"]
+    trades = get("t_t_e" , "t_t_s" , "today's closed trades" , state = "CLOSED" , count = 200)["trades"]
+    prices = get("pricing" , "pricing_sub" , "pricing" , instruments = cfg.instrument)["prices"]
+    account = get("acc_e" , "acc_s" , "account")["account"]
+
+    ## Transactions today for fill prices. OANDA answers with page urls, the first holds the fills.
+    pages = get("transaction_e" , "transaction_s" , "transaction pages" ,
+                **{"from" : midnight_utc_today.strftime("%Y-%m-%dT%H:%M:%SZ") ,
+                   "to" : datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") ,
+                   "type" : "ORDER_FILL"}).get("pages" , [])
+
+    pages_url = next((c for c in pages if isinstance(c , str) and c.startswith("http")) , None) if isinstance(pages , list) else None
+
+    if pages_url is None:
+        print(f"[WARN] No valid pages returned from OANDA: {pages}")
+        order_fills = []
+    else:
+        order_fills = json_or_raise(cfg.session.get(url = pages_url) , "transaction fills").get("transactions" , [])
+
+    return {"orders" : orders , "trades" : trades , "prices" : prices , "account" : account , "fills" : order_fills}
+
+
 def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None , **kwargs):
     """
     finalize_records takes a variety of inputs performs proprietary ETL on the information presented by the 
     vendor ( or platform for MVP ). It simulates a sample measurement after every OODA LOOP trade.
     It returns a JSON containing the finalized record.
+    It raises OandaError (or KeyError / IndexError for a body with missing pieces) when the vendor data
+    can't be read, so the caller can log it and skip this record instead of writing a partial one.
 
     Input:
     signal : pd.DataFrame - signal matrix incoming from ETL-Base
@@ -50,362 +101,112 @@ def finalize_records(signal : pd.DataFrame , trader, manager,  * , record = None
     ## Live -> happening at intake frequency, like OHLCV
     ## Rolling -> happening more frequently, rolling already at intake, like G and L or C
 
+    ## Start a new record, or add a row to the one that exists.
     if record is None or (isinstance(record, pd.DataFrame) and record.empty):
-
         finalized_record = pd.DataFrame(columns = COLS)
-
-        firstrow = {column : None for column in COLS}
-
-        ## Current UTC
-        now = datetime.now(timezone.utc)
-
-        ## Midnight UTC today
-        midnight_utc_today = datetime(year=now.year, month=now.month, day=now.day, tzinfo=timezone.utc)
-        
-        ## Find the orders and trades for today for the trader in question
-        today_orders = trader.config.platform.make_url(trader.config.mode , used_endpoints["t_o_e"] , used_endpoints["t_o_s"] , accountID = trader.config.platform.accountID)
-        today_trades = trader.config.platform.make_url(trader.config.mode , used_endpoints["t_t_e"] , used_endpoints["t_t_s"] , accountID = trader.config.platform.accountID)
-
-        ## Find the orders that are filled
-        today_f_orders = trader.config.session.get(url = today_orders , params = {"state" : "FILLED" , "count" : 200})
-
-        if today_f_orders.status_code == 200:
-            today_f_orders = today_f_orders.json()["orders"]
-        else:
-            raise ValueError(f"Error {today_f_orders.status_code}: {today_f_orders.text}")
-
-        ## Find the trades that are closed
-        today_c_trades = trader.config.session.get(url = today_trades ,  params = {"state" : "CLOSED" , "count" : 200})
-
-        if today_c_trades.status_code == 200:
-            today_c_trades = today_c_trades.json()["trades"]
-        else:
-            raise ValueError(f"Error {today_c_trades.status_code}: {today_c_trades.text}")
-
-
-        ## Find pricing information on the instrument from vendor , currently platform because OANDA.
-        pricing_url = trader.config.platform.make_url(trader.config.mode, used_endpoints["pricing"] , used_endpoints["pricing_sub"] , accountID = trader.config.platform.accountID)
-
-        pricing = trader.config.session.get(url = pricing_url, params = {"instruments" : trader.config.instrument})
-
-        if pricing.status_code == 200:
-            pricing = pricing.json()["prices"]
-        else:
-            raise ValueError(f"Error {pricing.status_code}: {pricing.text}")
-        
-        ## Find account information on the trader in question.
-        account_url = trader.config.platform.make_url(trader.config.mode , used_endpoints["acc_e"] , used_endpoints["acc_s"] , accountID = trader.config.platform.accountID)
-
-        account = trader.config.session.get(url = account_url)
-
-        if account.status_code == 200:
-            account = account.json()["account"]
-        else:
-            raise ValueError(f"Error {account.status_code}: {account.text}")
-
-
-        ## Find transactions today for codes for ETL
-        transaction_url = trader.config.platform.make_url(trader.config.mode , used_endpoints["transaction_e"] , used_endpoints["transaction_s"] , accountID = trader.config.platform.accountID)
-
-        transaction_body = trader.config.session.get(url = transaction_url , params = {"from" : midnight_utc_today.strftime("%Y-%m-%dT%H:%M:%SZ") , "to" : datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                      , "type" : "ORDER_FILL"})
-
-        if transaction_body.status_code == 200:
-            pages = transaction_body.json().get("pages" , [])
-        else:
-            raise ValueError(f"Error {transaction_body.status_code}: {transaction_body.text}")
-        
-        
-        pages_url = None  # reset every time
-        order_fills = [] # default safe value
-
-        # Pick the first valid URL in pages
-        if isinstance(pages, list):
-            for candidate in pages:
-                if isinstance(candidate, str) and candidate.startswith("http"):
-                    pages_url = candidate
-                    break
-
-        if isinstance(pages_url, str):
-            range_transactions = trader.config.session.get(url=pages_url)
-            if range_transactions.status_code == 200:
-                order_fills = range_transactions.json().get("transactions", [])
-            else:
-                raise ValueError(f"Error {range_transactions.status_code}: {range_transactions.text}")
-        else:
-            # Debugging breadcrumb so you can see what OANDA gave you
-            print(f"[WARN] No valid pages returned from OANDA: {pages}")
-            order_fills = []
-
-
-        ## Intermediary calculations
-        lotsize_roll = np.median([abs(int(t["units"]))
-                for t in today_f_orders if t["instrument"] ==  trader.config.instrument
-                and t["createTime"][0:10] == signal["timestamp"][0][0:10]]) if any(today_f_orders) else 0.0 # closed only
-
-        
-        liquidity = pricing[0]["asks"][0]["liquidity"]
-        
-        bid = float(pricing[0]["bids"][0]["price"])
-        ask = float(pricing[0]["asks"][0]["price"])
-
-        fills = [float(order["price"]) for order in order_fills if order["instrument"] == trader.config.instrument]
-        fill_roll = np.median(fills) if any(fills) else 0.0
-
-
-        G = sum(1 for t in today_c_trades if float(t["realizedPL"]) > 0)
-        L = sum(1 for t in today_c_trades if float(t["realizedPL"]) < 0)
-        
-        p_roll = G / (G+L) if (G+L) else 0.0
-        
-        Gs = [float(t["realizedPL"]) if float(t["realizedPL"]) > 0 else 0.0 for t in today_c_trades]
-        Ls = [abs(float(t["realizedPL"])) if float(t["realizedPL"]) < 0 else 0.0 for t in today_c_trades]
-        
-        G_roll = np.median(Gs) if any(Gs) else 0.0
-        L_roll = np.median(Ls) if any(Ls) else 0.0
-        
-        num_buy = sum(1 for t in today_c_trades if float(t["initialUnits"]) > 0)
-        num_sell = sum(1 for t in today_c_trades if float(t["initialUnits"]) < 0)
-
-        open_orders = account["pendingOrderCount"]
-        open_trades = account["openTradeCount"]
-        
-        ## PnL might not exist for given asset being retrieved , else PnL is realized and unrealized
-        pnl = 0.0
-        for pos in account.get("positions", []):
-            if pos.get("instrument") == trader.config.instrument:
-                pnl = float(pos.get("pl", 0.0)) + float(pos.get("unrealizedPL", 0.0))
-                break
-
-
-        ## Make a JSON of the row to be C, so that finalized matrix has U in CRUD.
-        firstrow["accountID"] = str(trader.config.platform.accountID)
-        firstrow["name"] = str(trader.name)
-        firstrow["riskmanager"] = str(manager.name)
-        firstrow["ts"] = str(signal["timestamp"].iloc[-1])
-        firstrow["d_int"] = str(trader.config.intake)
-        firstrow["d_hor"] = str(trader.config.horizon)
-        firstrow["d_zone"] = int(trader.config.zone)
-        firstrow["instrument"] = str(trader.config.instrument)
-        firstrow["regime"] = str(json.dumps(REGIME))
-        firstrow["B"] = float(signal["B"].iloc[-1])
-        firstrow["S"] = float(signal["S"].iloc[-1])
-        firstrow["Margin"] = float(signal["Margin"].iloc[-1])
-        firstrow["Intensity"] = float(signal["Intensity"].iloc[-1])
-        firstrow["U"] = float(signal["Theta"].iloc[-1])
-        firstrow["V"] = float(signal["Mu"].iloc[-1])
-        firstrow["UxV"] = "Theta x Mu" #dynamically pull if more fluid else hardcode
-        firstrow["ActionHat"] = int(signal["ActionHat"].iloc[-1])
-        firstrow["lotsize_roll"] = float(lotsize_roll)
-        firstrow["B_a"] = "NOT MVP" #B_a with dynamic filling later, FOK
-        firstrow["S_a"] = "S AMOUNT EXEC % NOT MVP" #S_a with dynamic filling later, FOK
-        firstrow["T_a"] = "NOT MVP" #T_a with dynamic filling later, FOK
-        firstrow["why_unfill"] = "DICT COUNTS OF WHY UNFILLLED NOT MVP" #why_unfill with dynamic filling later, FOK
-        firstrow["liquidity"] = int(liquidity)
-        firstrow["bid"] = float(bid)
-        firstrow["ask"] = float(ask)
-        firstrow["spread"] = float(round(float(ask - bid) , 8))
-        firstrow["intended"] = ask if signal["ActionHat"].iloc[-1] == 0 else (bid if signal["ActionHat"].iloc[-1] == 1 else 0)
-        firstrow["fill_roll"] = float(fill_roll)
-        firstrow["slip_r_roll"] = float(fill_roll - firstrow["intended"])
-        firstrow["slip_a_roll"] = float(np.abs(firstrow["slip_r_roll"]))
-        firstrow["slip_pips_roll"] = float(firstrow["slip_a_roll"] / pip_size(firstrow["instrument"]))
-        firstrow["open"] = float(signal["open"].iloc[-1]) # ohlcv needs to be in signal, tune the t 2
-        firstrow["high"] = float(signal["high"].iloc[-1])
-        firstrow["low"] = float(signal["low"].iloc[-1])
-        firstrow["close"] = float(signal["close"].iloc[-1])
-        firstrow["volume"] = float(signal["volume"].iloc[-1])
-        firstrow["open_orders"] = int(open_orders) # call pending orders from account but 0 not useful rn
-        firstrow["open_trades"] = int(open_trades)
-        firstrow["p_roll"] = float(p_roll)
-        firstrow["G_roll"] = float(G_roll)
-        firstrow["L_roll"] = float(L_roll)
-        firstrow["N_B"] = int(num_buy)
-        firstrow["N_S"] = int(num_sell)
-        firstrow["N_T"] = int(firstrow["N_B"] + firstrow["N_S"])
-        firstrow["C_roll"] = "HIDDEN COSTS BY OANDA NOT MVP" #C_roll for later b/c vendor hide. PnL given
-        firstrow["PnL"] = float(pnl)
-
-        full_df = pd.concat([finalized_record , pd.DataFrame([firstrow])] , ignore_index= True)
-
-        return {"finalrecord" : full_df}
-    
-    elif isinstance(record, pd.DataFrame) and not record.empty:
-        
+    elif isinstance(record, pd.DataFrame):
         finalized_record = record
+    else:
+        raise TypeError(f"record must be None or a DataFrame, got {type(record).__name__}")
 
-        firstrow = {column : None for column in COLS}
+    firstrow = {column : None for column in COLS}
 
-        ## Current UTC
-        now = datetime.now(timezone.utc)
+    ## Everything from the vendor, fetched up front so a failure leaves nothing half written.
+    vendor = _vendor_state(trader , used_endpoints)
+    today_f_orders = vendor["orders"]
+    today_c_trades = vendor["trades"]
+    pricing = vendor["prices"]
+    account = vendor["account"]
+    order_fills = vendor["fills"]
 
-        ## Midnight UTC today
-        midnight_utc_today = datetime(year=now.year, month=now.month, day=now.day, tzinfo=timezone.utc)
-        
-        ## Find the orders and trades for today for the trader in question
-        today_orders = trader.config.platform.make_url(trader.config.mode , used_endpoints["t_o_e"] , used_endpoints["t_o_s"] , accountID = trader.config.platform.accountID)
-        today_trades = trader.config.platform.make_url(trader.config.mode , used_endpoints["t_t_e"] , used_endpoints["t_t_s"] , accountID = trader.config.platform.accountID)
+    ## Intermediary calculations
+    lotsize_roll = np.median([abs(int(t["units"]))
+            for t in today_f_orders if t["instrument"] ==  trader.config.instrument
+            and t["createTime"][0:10] == signal["timestamp"][0][0:10]]) if any(today_f_orders) else 0.0 # closed only
 
-        ## Find the orders that are filled
-        today_f_orders = trader.config.session.get(url = today_orders , params = {"state" : "FILLED" , "count" : 200})
+    
+    liquidity = pricing[0]["asks"][0]["liquidity"]
+    
+    bid = float(pricing[0]["bids"][0]["price"])
+    ask = float(pricing[0]["asks"][0]["price"])
 
-        if today_f_orders.status_code == 200:
-            today_f_orders = today_f_orders.json()["orders"]
-        else:
-            raise ValueError(f"Error {today_f_orders.status_code}: {today_f_orders.text}")
-
-        ## Find the trades that are closed
-        today_c_trades = trader.config.session.get(url = today_trades ,  params = {"state" : "CLOSED" , "count" : 200})
-
-        if today_c_trades.status_code == 200:
-            today_c_trades = today_c_trades.json()["trades"]
-        else:
-            raise ValueError(f"Error {today_c_trades.status_code}: {today_c_trades.text}")
+    fills = [float(order["price"]) for order in order_fills if order["instrument"] == trader.config.instrument]
+    fill_roll = np.median(fills) if any(fills) else 0.0
 
 
-        ## Find pricing information on the instrument from vendor , currently platform because OANDA.
-        pricing_url = trader.config.platform.make_url(trader.config.mode, used_endpoints["pricing"] , used_endpoints["pricing_sub"] , accountID = trader.config.platform.accountID)
+    G = sum(1 for t in today_c_trades if float(t["realizedPL"]) > 0)
+    L = sum(1 for t in today_c_trades if float(t["realizedPL"]) < 0)
+    
+    p_roll = G / (G+L) if (G+L) else 0.0
+    
+    Gs = [float(t["realizedPL"]) if float(t["realizedPL"]) > 0 else 0.0 for t in today_c_trades]
+    Ls = [abs(float(t["realizedPL"])) if float(t["realizedPL"]) < 0 else 0.0 for t in today_c_trades]
+    
+    G_roll = np.median(Gs) if any(Gs) else 0.0
+    L_roll = np.median(Ls) if any(Ls) else 0.0
+    
+    num_buy = sum(1 for t in today_c_trades if float(t["initialUnits"]) > 0)
+    num_sell = sum(1 for t in today_c_trades if float(t["initialUnits"]) < 0)
 
-        pricing = trader.config.session.get(url = pricing_url, params = {"instruments" : trader.config.instrument})
-
-        if pricing.status_code == 200:
-            pricing = pricing.json()["prices"]
-        else:
-            raise ValueError(f"Error {pricing.status_code}: {pricing.text}")
-        
-        ## Find account information on the trader in question.
-        account_url = trader.config.platform.make_url(trader.config.mode , used_endpoints["acc_e"] , used_endpoints["acc_s"] , accountID = trader.config.platform.accountID)
-
-        account = trader.config.session.get(url = account_url)
-
-        if account.status_code == 200:
-            account = account.json()["account"]
-        else:
-            raise ValueError(f"Error {account.status_code}: {account.text}")
-
-
-        ## Find transactions today for codes for ETL
-        transaction_url = trader.config.platform.make_url(trader.config.mode , used_endpoints["transaction_e"] , used_endpoints["transaction_s"] , accountID = trader.config.platform.accountID)
-
-        transaction_body = trader.config.session.get(url = transaction_url , params = {"from" : midnight_utc_today.strftime("%Y-%m-%dT%H:%M:%SZ") , "to" : datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                      , "type" : "ORDER_FILL"})
-
-        if transaction_body.status_code == 200:
-            pages = transaction_body.json().get("pages" , [])
-        else:
-            raise ValueError(f"Error {transaction_body.status_code}: {transaction_body.text}")
-        
-        
-        pages_url = None  # reset every time
-        order_fills = [] # default safe value
-
-        # Pick the first valid URL in pages
-        if isinstance(pages, list):
-            for candidate in pages:
-                if isinstance(candidate, str) and candidate.startswith("http"):
-                    pages_url = candidate
-                    break
-
-        if isinstance(pages_url, str):
-            range_transactions = trader.config.session.get(url=pages_url)
-            if range_transactions.status_code == 200:
-                order_fills = range_transactions.json().get("transactions", [])
-            else:
-                raise ValueError(f"Error {range_transactions.status_code}: {range_transactions.text}")
-        else:
-            # Debugging breadcrumb so you can see what OANDA gave you
-            print(f"[WARN] No valid pages returned from OANDA: {pages}")
-            order_fills = []
+    open_orders = account["pendingOrderCount"]
+    open_trades = account["openTradeCount"]
+    
+    ## PnL might not exist for given asset being retrieved , else PnL is realized and unrealized
+    pnl = 0.0
+    for pos in account.get("positions", []):
+        if pos.get("instrument") == trader.config.instrument:
+            pnl = float(pos.get("pl", 0.0)) + float(pos.get("unrealizedPL", 0.0))
+            break
 
 
-        ## Intermediary calculations
-        lotsize_roll = np.median([abs(int(t["units"]))
-                for t in today_f_orders if t["instrument"] ==  trader.config.instrument
-                and t["createTime"][0:10] == signal["timestamp"][0][0:10]]) if any(today_f_orders) else 0.0 # closed only
+    ## Make a JSON of the row to be C, so that finalized matrix has U in CRUD.
+    firstrow["accountID"] = str(trader.config.platform.accountID)
+    firstrow["name"] = str(trader.name)
+    firstrow["riskmanager"] = str(manager.name)
+    firstrow["ts"] = str(signal["timestamp"].iloc[-1])
+    firstrow["d_int"] = str(trader.config.intake)
+    firstrow["d_hor"] = str(trader.config.horizon)
+    firstrow["d_zone"] = int(trader.config.zone)
+    firstrow["instrument"] = str(trader.config.instrument)
+    firstrow["regime"] = str(json.dumps(REGIME))
+    firstrow["B"] = float(signal["B"].iloc[-1])
+    firstrow["S"] = float(signal["S"].iloc[-1])
+    firstrow["Margin"] = float(signal["Margin"].iloc[-1])
+    firstrow["Intensity"] = float(signal["Intensity"].iloc[-1])
+    firstrow["U"] = float(signal["Theta"].iloc[-1])
+    firstrow["V"] = float(signal["Mu"].iloc[-1])
+    firstrow["UxV"] = "Theta x Mu" #dynamically pull if more fluid else hardcode
+    firstrow["ActionHat"] = int(signal["ActionHat"].iloc[-1])
+    firstrow["lotsize_roll"] = float(lotsize_roll)
+    firstrow["B_a"] = "NOT MVP" #B_a with dynamic filling later, FOK
+    firstrow["S_a"] = "S AMOUNT EXEC % NOT MVP" #S_a with dynamic filling later, FOK
+    firstrow["T_a"] = "NOT MVP" #T_a with dynamic filling later, FOK
+    firstrow["why_unfill"] = "DICT COUNTS OF WHY UNFILLLED NOT MVP" #why_unfill with dynamic filling later, FOK
+    firstrow["liquidity"] = int(liquidity)
+    firstrow["bid"] = float(bid)
+    firstrow["ask"] = float(ask)
+    firstrow["spread"] = float(round(float(ask - bid) , 8))
+    firstrow["intended"] = ask if signal["ActionHat"].iloc[-1] == 0 else (bid if signal["ActionHat"].iloc[-1] == 1 else 0)
+    firstrow["fill_roll"] = float(fill_roll)
+    firstrow["slip_r_roll"] = float(fill_roll - firstrow["intended"])
+    firstrow["slip_a_roll"] = float(np.abs(firstrow["slip_r_roll"]))
+    firstrow["slip_pips_roll"] = float(firstrow["slip_a_roll"] / pip_size(firstrow["instrument"]))
+    firstrow["open"] = float(signal["open"].iloc[-1]) # ohlcv needs to be in signal, tune the t 2
+    firstrow["high"] = float(signal["high"].iloc[-1])
+    firstrow["low"] = float(signal["low"].iloc[-1])
+    firstrow["close"] = float(signal["close"].iloc[-1])
+    firstrow["volume"] = float(signal["volume"].iloc[-1])
+    firstrow["open_orders"] = int(open_orders) # call pending orders from account but 0 not useful rn
+    firstrow["open_trades"] = int(open_trades)
+    firstrow["p_roll"] = float(p_roll)
+    firstrow["G_roll"] = float(G_roll)
+    firstrow["L_roll"] = float(L_roll)
+    firstrow["N_B"] = int(num_buy)
+    firstrow["N_S"] = int(num_sell)
+    firstrow["N_T"] = int(firstrow["N_B"] + firstrow["N_S"])
+    firstrow["C_roll"] = "HIDDEN COSTS BY OANDA NOT MVP" #C_roll for later b/c vendor hide. PnL given
+    firstrow["PnL"] = float(pnl)
 
-        
-        liquidity = pricing[0]["asks"][0]["liquidity"]
-        
-        bid = float(pricing[0]["bids"][0]["price"])
-        ask = float(pricing[0]["asks"][0]["price"])
+    full_df = pd.concat([finalized_record , pd.DataFrame([firstrow])] , ignore_index= True)
 
-        fills = [float(order["price"]) for order in order_fills if order["instrument"] == trader.config.instrument]
-        fill_roll = np.median(fills) if any(fills) else 0.0
-
-
-        G = sum(1 for t in today_c_trades if float(t["realizedPL"]) > 0)
-        L = sum(1 for t in today_c_trades if float(t["realizedPL"]) < 0)
-        
-        p_roll = G / (G+L) if (G+L) else 0.0
-        
-        Gs = [float(t["realizedPL"]) if float(t["realizedPL"]) > 0 else 0.0 for t in today_c_trades]
-        Ls = [abs(float(t["realizedPL"])) if float(t["realizedPL"]) < 0 else 0.0 for t in today_c_trades]
-        
-        G_roll = np.median(Gs) if any(Gs) else 0.0
-        L_roll = np.median(Ls) if any(Ls) else 0.0
-        
-        num_buy = sum(1 for t in today_c_trades if float(t["initialUnits"]) > 0)
-        num_sell = sum(1 for t in today_c_trades if float(t["initialUnits"]) < 0)
-
-        open_orders = account["pendingOrderCount"]
-        open_trades = account["openTradeCount"]
-        
-        ## PnL might not exist for given asset being retrieved , else PnL is realized and unrealized
-        pnl = 0.0
-        for pos in account.get("positions", []):
-            if pos.get("instrument") == trader.config.instrument:
-                pnl = float(pos.get("pl", 0.0)) + float(pos.get("unrealizedPL", 0.0))
-                break
-
-
-        ## Make a JSON of the row to be C, so that finalized matrix has U in CRUD.
-        firstrow["accountID"] = str(trader.config.platform.accountID)
-        firstrow["name"] = str(trader.name)
-        firstrow["riskmanager"] = str(manager.name)
-        firstrow["ts"] = str(signal["timestamp"].iloc[-1])
-        firstrow["d_int"] = str(trader.config.intake)
-        firstrow["d_hor"] = str(trader.config.horizon)
-        firstrow["d_zone"] = int(trader.config.zone)
-        firstrow["instrument"] = str(trader.config.instrument)
-        firstrow["regime"] = str(json.dumps(REGIME))
-        firstrow["B"] = float(signal["B"].iloc[-1])
-        firstrow["S"] = float(signal["S"].iloc[-1])
-        firstrow["Margin"] = float(signal["Margin"].iloc[-1])
-        firstrow["Intensity"] = float(signal["Intensity"].iloc[-1])
-        firstrow["U"] = float(signal["Theta"].iloc[-1])
-        firstrow["V"] = float(signal["Mu"].iloc[-1])
-        firstrow["UxV"] = "Theta x Mu" #dynamically pull if more fluid else hardcode
-        firstrow["ActionHat"] = int(signal["ActionHat"].iloc[-1])
-        firstrow["lotsize_roll"] = float(lotsize_roll)
-        firstrow["B_a"] = "NOT MVP" #B_a with dynamic filling later, FOK
-        firstrow["S_a"] = "S AMOUNT EXEC % NOT MVP" #S_a with dynamic filling later, FOK
-        firstrow["T_a"] = "NOT MVP" #T_a with dynamic filling later, FOK
-        firstrow["why_unfill"] = "DICT COUNTS OF WHY UNFILLLED NOT MVP" #why_unfill with dynamic filling later, FOK
-        firstrow["liquidity"] = int(liquidity)
-        firstrow["bid"] = float(bid)
-        firstrow["ask"] = float(ask)
-        firstrow["spread"] = float(round(float(ask - bid) , 8))
-        firstrow["intended"] = ask if signal["ActionHat"].iloc[-1] == 0 else (bid if signal["ActionHat"].iloc[-1] == 1 else 0)
-        firstrow["fill_roll"] = float(fill_roll)
-        firstrow["slip_r_roll"] = float(fill_roll - firstrow["intended"])
-        firstrow["slip_a_roll"] = float(np.abs(firstrow["slip_r_roll"]))
-        firstrow["slip_pips_roll"] = float(firstrow["slip_a_roll"] / pip_size(firstrow["instrument"]))
-        firstrow["open"] = float(signal["open"].iloc[-1]) # ohlcv needs to be in signal, tune the t 2
-        firstrow["high"] = float(signal["high"].iloc[-1])
-        firstrow["low"] = float(signal["low"].iloc[-1])
-        firstrow["close"] = float(signal["close"].iloc[-1])
-        firstrow["volume"] = float(signal["volume"].iloc[-1])
-        firstrow["open_orders"] = int(open_orders) # call pending orders from account but 0 not useful rn
-        firstrow["open_trades"] = int(open_trades)
-        firstrow["p_roll"] = float(p_roll)
-        firstrow["G_roll"] = float(G_roll)
-        firstrow["L_roll"] = float(L_roll)
-        firstrow["N_B"] = int(num_buy)
-        firstrow["N_S"] = int(num_sell)
-        firstrow["N_T"] = int(firstrow["N_B"] + firstrow["N_S"])
-        firstrow["C_roll"] = "HIDDEN COSTS BY OANDA NOT MVP" #C_roll for later b/c vendor hide. PnL given
-        firstrow["PnL"] = float(pnl)
-
-        full_df = pd.concat([finalized_record , pd.DataFrame([firstrow])] , ignore_index= True)
-
-        return {"finalrecord" : full_df}
+    return {"finalrecord" : full_df}
