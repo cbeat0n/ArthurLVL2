@@ -19,7 +19,7 @@
       <div class="muted">Instrument: <strong>{{ instrument|default('—') }}</strong> • Horizon: <strong>{{ refreshRate|default('—') }}</strong></div>
     </div>
     <div class="row">
-      <a class="btn" target = '_blank' href="/visualize/?signalFile={{ signalFile|default('') }}&instrument={{ instrument|default('') }}&horizon={{ refreshRate|default('') }}&zone={{ zone|default('') }}">Open Market View</a>
+      <a class="btn" target = '_blank' href="/visualize/?instrument={{ instrument|default('') }}&horizon={{ refreshRate|default('') }}&zone={{ zone|default('') }}">Open Market View</a>
       <form method="post" action="/accounting">
         <label for="autoSwitch">Automation Switch:</label>
           <select name="autoSwitch" id="autoSwitch"required>

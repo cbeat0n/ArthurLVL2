@@ -34,8 +34,8 @@
   <script type="application/json" id="signal-data">{{ signalMatrix | tojson | safe }}</script>
 
   <script>
-    const INSTRUMENT = "{{ instrument }}";
-    const HORIZON = "{{ refreshRate }}";   // e.g. M1Q0, M2Q1
+    const INSTRUMENT = {{ instrument | tojson }};
+    const HORIZON = {{ refreshRate | tojson }};   // e.g. M1Q0, M2Q1
 
     // Horizon "M2Q1" -> 2.25 minutes -> ms. Falls back to 60 s if the string is unusable.
     function getRefreshMs(horizon) {

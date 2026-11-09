@@ -12,7 +12,7 @@ from flask import Flask, render_template, request # Library for common MWF
 from flask import jsonify , redirect, url_for # Library for common MWF
 import pandas as pd # Library for data manipulation
 import time # Library for time
-import os , glob # Library for operating system communication
+import os , glob , re # Library for operating system communication and pattern matching
 from threading import Event , Lock # Library for flagging black swans and guarding startup
 from concurrent.futures import ThreadPoolExecutor # Threading for MVP, Multiprocessing for later
 
@@ -218,7 +218,6 @@ def enter_vault():
 
     return render_template("vault_storage.html", 
                            accountSummary = account_summary,
-                           signalFile = "",
                            instrument = arthur.config.instrument,
                            refreshRate = arthur.config.horizon,
                            zone = arthur.config.zone)
@@ -240,8 +239,11 @@ def visualize_market():
     records = latest_signal_records(instrument)
     if records is None:
         return "No signal data yet or unknown instrument", 404
+    horizon = request.args.get("horizon", "M1Q0")
+    if not re.fullmatch(r"M\d+Q[0-3]", horizon): # the form MXQN, e.g. M1Q0
+        return "Bad horizon. Use the form MXQN, e.g. M1Q0.", 400
     return render_template("market_view.html", signalMatrix=records, instrument=instrument,
-                           refreshRate=request.args.get("horizon", "M1Q0"),
+                           refreshRate=horizon,
                            zone=request.args.get("zone"))
 
 @ArthurFlask.route("/visualize/data", methods=["GET"])
