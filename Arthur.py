@@ -27,6 +27,7 @@ from utils.operators import DataVendor , Platform , OandaTrading ,ArthurConfig, 
 from utils.operators import RiskManager , Trader
 from utils.operators import OperationalState
 from utils.granularity import horizon_seconds , check_granularity
+from utils.instruments import SUPPORTED
 from utils.scheduler import CycleScheduler
 
 ## Load environment variables from the .env file
@@ -103,7 +104,9 @@ def enter_vault():
             traders = int(request.args.get("traders", 1))
             mode = request.args.get("mode", "Demo")
 
-            ## Refuse a bad pairing now, not inside the scheduler thread every cycle
+            ## Refuse a bad instrument or pairing now, not inside the scheduler thread every cycle
+            if instrument not in SUPPORTED:
+                return f"Unsupported instrument {instrument!r}. Supported: {', '.join(SUPPORTED)}", 400
             try:
                 check_granularity(intake, horizon)
             except ValueError as e:
@@ -161,7 +164,7 @@ def enter_vault():
 
 def latest_signal_records(instrument):
     """Newest signal file for the instrument as a list of records, or None."""
-    if instrument not in {"USD_JPY", "USD_CHF", "USD_MXN", "EUR_USD"}:
+    if instrument not in SUPPORTED:
         return None
     files = glob.glob(os.path.join(BASE_DIR, "signal", "*", f"signal_data_{instrument}_*.csv"))
     if not files:

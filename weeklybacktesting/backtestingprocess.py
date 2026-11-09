@@ -23,6 +23,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.transform_cleaned import convert_to_tabular, clean_tabular
 from utils.transform_signal import transform_to_signal, causal_signal
 from utils.granularity import horizon_seconds
+from utils.instruments import pip_size # shared with the live path
 from utils.http_helpers import OandaSession, json_or_raise
 
 ## Backtesting Constraints
@@ -47,22 +48,6 @@ CAPITAL = 2500000 # Initial Capital
 BLOTSIZE = 5000 # Buying Lotsize
 LONGUNITS = 0 # Long Units Start
 
-
-def pip_size(symbol = "USD_JPY"):
-    """
-    pip_size defines the size of a pip for an FX pair.
-    Strategies start as backtested, then go to demo, then to live. That is why this function
-    is here and not elsewhere.
-    It returns a float of the percentage in points
-    
-    Inputs:
-    symbol : str - instrument symbol
-    """
-
-    if symbol == "USD_JPY":
-        return 0.01
-    else:
-        return 0.0001 # Generic pip and can be made for other options.
 
 def fetch_historical_candles(instrument="USD_JPY", intake="S5", price="MBA", date=None, timezone="UTC"):
     """

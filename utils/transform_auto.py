@@ -11,7 +11,7 @@ from datetime import datetime , timezone # Library for time objects
 
 ## Internal Dependencies
 from utils.transform_signal import REGIME 
-from weeklybacktesting.backtestingprocess import pip_size
+from utils.instruments import pip_size
 from utils.http_helpers import json_or_raise # raises OandaError on bad status or non-JSON body
 
 ## Columns inside the finalized matrix.
