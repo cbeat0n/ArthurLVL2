@@ -637,7 +637,7 @@ class Trader:
 
 class RiskManager:
    
-    devtime = True # devtime used to keep the trading bot open. Set per instance from the mode, never True in Live.
+    devtime = False # devtime used to keep the trading bot open. Set per instance from the mode, never True in Live.
     
     def __init__(self , name : str , arthur : Arthur , cfg : ArthurConfig):
         """
