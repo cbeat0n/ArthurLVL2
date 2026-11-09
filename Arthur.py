@@ -6,7 +6,6 @@
 
 ## External Dependencies
 from dotenv import load_dotenv # Env hides API Key
-import requests # Library for handling HTTP requests
 import signal # Library for Server signals
 from datetime import datetime , timezone # Library for time objects
 from flask import Flask, render_template, request # Library for common MWF
@@ -57,6 +56,30 @@ def home():
     return render_template("homepage.html")
 
 
+def stop_server():
+    """
+    stop_server stops the scheduler, shuts down the thread pool, and then ends the process.
+    It is a plain function and not a web route, so nothing outside the process can call it.
+    It is safe to call from the scheduler's own thread. This is the one place that will also
+    cancel orders and close trades once the emergency stop is built.
+    It returns nothing.
+
+    Inputs:
+    None
+    """
+
+    scheduler = GLOBAL_STATE.get("Scheduler")
+    if scheduler is not None:
+        scheduler.stop() # does not wait on itself when called from its own thread
+
+    arthur = GLOBAL_STATE.get("Arthur")
+    if arthur is not None:
+        arthur.shutdown() # Stops thread pooling
+
+    print("Server shutting down...", flush = True)
+    os.kill(os.getpid(), signal.SIGTERM) # on Windows this ends the process at once
+
+
 def scheduled_cycle():
     """
     scheduled_cycle is what the scheduler runs once per horizon. It returns False to stop the
@@ -71,9 +94,8 @@ def scheduled_cycle():
     GLOBAL_STATE["State"] = state
 
     if state == OperationalState.CLOSED and STOP_WHEN_CLOSED:
-        arthur.shutdown() # Stops thread pooling
         print("Trading out of bounds for current operations.")
-        requests.post("http://127.0.0.1:5000/shutdownserver")
+        stop_server()
         return False
     return True
 
@@ -221,23 +243,6 @@ def visualize_data():
     if records is None:
         return jsonify({"error": "no signal data"}), 404
     return jsonify(records)
-
-
-@ArthurFlask.route("/shutdownserver", methods=["POST"])
-def shut_down_server():
-    """
-    shut_down_server shuts down the Waitress server by sending SIGTERM to the current process.
-    It returns nothing.
-
-    Inputs:
-    None
-    """
-
-    print("Server shutting down...")
-    pid = os.getpid()
-    os.kill(pid, signal.SIGTERM)   # Graceful termination signal
-
-
 
 
 ## Werkzeug for Development (slower, construction, setting up skeleton into chassis)
