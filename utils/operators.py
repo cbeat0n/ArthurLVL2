@@ -297,8 +297,6 @@ class Arthur():
         ## Flatten the managers and teams into trader manager pairs
         trader_pairs = [(m, t) for m in self.managers for t in m.team]    
 
-        market_cycles = []
-
         start = time.time()
         
         ## Threading set up outside of cycle to only setup once, for concurrency
@@ -307,14 +305,18 @@ class Arthur():
         for (m, t) in trader_pairs
         }
 
-        cycletime = time.time() - start
-
-        for f in as_completed(futures): # As completed, append cycles
-            decision = f.result()
+        decisions = []
+        for f in as_completed(futures): # As completed, collect decisions
+            try:
+                decision = f.result()
+            except Exception as e: # one trader failing must not lose the others
+                decision = {"action" : None , "status" : {"status" : "error" , "detail" : f"{type(e).__name__}: {e}"}}
             futures[f].record_outcome(decision)     # tell the manager how the trade went
-            market_cycles.append({"decision": decision , "cycletime" : cycletime})
+            decisions.append(decision)
 
-
+        ## Timed after the work is done, so it covers the whole cycle
+        cycletime = time.time() - start
+        market_cycles = [{"decision" : d , "cycletime" : cycletime} for d in decisions]
 
         cycles = pd.DataFrame(market_cycles)
     
@@ -329,6 +331,33 @@ class Arthur():
         cycles.to_csv(full_path, index=False)
 
 
+
+    def run_once(self):
+        """
+        run_once performs one full cycle: acquire the market, decide the ignition state, and
+        trade if open. The scheduler calls it once per horizon.
+        It returns the OperationalState.
+
+        Inputs:
+        self : self
+        """
+
+        ## Acquire Market information
+        signal_filename = self._acquire_market()["location"]
+
+        ## Arthur Ignition
+        ignition = self._ignition_A()
+        self.config.operationalstate = ignition
+
+        if ignition == OperationalState.OPEN:
+            print("Currently open...")
+            self._market_cycle(marketfile = signal_filename)
+        elif ignition == OperationalState.HOLDING:
+            print("Currently holding...")
+        else:
+            print("Currently closed...")
+
+        return ignition
 
     def _accounting(self):
         """

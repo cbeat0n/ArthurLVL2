@@ -1,0 +1,420 @@
+diff --git a/Arthur.py b/Arthur.py
+index 15ca21d..e2871c4 100644
+--- a/Arthur.py
++++ b/Arthur.py
+@@ -14,7 +14,7 @@ from flask import jsonify , redirect, url_for # Library for common MWF
+ import pandas as pd # Library for data manipulation
+ import time # Library for time
+ import os , glob # Library for operating system communication
+-from threading import Event # Library for flagging black swans
++from threading import Event , Lock # Library for flagging black swans and guarding startup
+ from concurrent.futures import ThreadPoolExecutor # Threading for MVP, Multiprocessing for later
+ 
+ ## Internal Dependencies
+@@ -26,13 +26,17 @@ from utils.load_signal import load_signal_matrix
+ from utils.operators import DataVendor , Platform , OandaTrading ,ArthurConfig, Arthur
+ from utils.operators import RiskManager , Trader
+ from utils.operators import OperationalState
++from utils.granularity import horizon_seconds , check_granularity
++from utils.scheduler import CycleScheduler
+ 
+ ## Load environment variables from the .env file
+ load_dotenv()
+ 
+ ## Initialize Flask App and globally hardcoded parameters.
+ ArthurFlask = Flask(__name__)
+-GLOBAL_STATE = {"Arthur" : None} # Arthur and its corresponding state start at None
++GLOBAL_STATE = {"Arthur" : None , "Scheduler" : None} # Arthur, its scheduler and state start at None
++START_LOCK = Lock() # one startup at a time
++STOP_WHEN_CLOSED = True # True: stop the server when CLOSED. False: stay up and wait for the next cycle
+ BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),"data")
+ REGISTRY = {"vendor" : None , "platform" : os.getenv("OANDADEMOAPIKEY")} # Can keep .env separate
+ VENDOR = DataVendor() # Blank because MVP uses Oanda
+@@ -52,11 +56,33 @@ def home():
+     return render_template("homepage.html")
+ 
+ 
++def scheduled_cycle():
++    """
++    scheduled_cycle is what the scheduler runs once per horizon. It returns False to stop the
++    scheduler, anything else to continue.
++
++    Inputs:
++    None
++    """
++
++    arthur = GLOBAL_STATE["Arthur"]
++    state = arthur.run_once()
++    GLOBAL_STATE["State"] = state
++
++    if state == OperationalState.CLOSED and STOP_WHEN_CLOSED:
++        arthur.shutdown() # Stops thread pooling
++        print("Trading out of bounds for current operations.")
++        requests.post("http://127.0.0.1:5000/shutdownserver")
++        return False
++    return True
++
++
+ @ArthurFlask.route("/accounting", methods = ["GET","POST"])
+ def enter_vault():
+     """
+-    enter_vault sets up the dynamic accounting dashboard for current status
+-    on trading, and sends dynamically refreshed information to visualize route.
++    enter_vault starts Arthur and its scheduler on the first visit, then shows the dynamic
++    accounting dashboard. Trading runs on the scheduler's own thread, once per horizon, so it
++    no longer depends on this page being open or reloading.
+     It returns a rendered template.
+ 
+     Inputs:
+@@ -65,84 +91,70 @@ def enter_vault():
+     
+     global GLOBAL_STATE , BASE_DIR , VENDOR , REGISTRY
+ 
++    with START_LOCK: # two first visits at once must not start two bots
++
++        if GLOBAL_STATE["Arthur"] is None:
++
++            instrument = request.args.get("currencyPair", "USD_JPY")
++            intake = request.args.get("intake", "S5")
++            horizon = request.args.get("horizon", "M1Q0")
++            zone = int(request.args.get("zone", "10"))
++            managers = int(request.args.get("Managers", 1))
++            traders = int(request.args.get("traders", 1))
++            mode = request.args.get("mode", "Demo")
++
++            ## Refuse a bad pairing now, not inside the scheduler thread every cycle
++            try:
++                check_granularity(intake, horizon)
++            except ValueError as e:
++                return str(e), 400
++
++            ## Local variable to change it without scope violation
++            platform = OandaTrading(REGISTRY["platform"])
++
++            config = ArthurConfig(
++                base_dir=BASE_DIR,
++                mode=mode,
++                vendor=VENDOR,
++                platform=platform,
++                registry=REGISTRY,
++                instrument=instrument,
++                intake=intake,
++                horizon=horizon,
++                zone=zone,
++                threadpool=ThreadPoolExecutor(max_workers = managers*traders), # Static, dynamic later
++                state=OperationalState.OPEN
++            )
++            
++            ## Make Platform & Arthur Instance
++            platform.set_config(config)
++            platform.set_instrument(instrument) # Hardcoded instrument
++            GLOBAL_STATE["Arthur"] = Arthur(cfg = config , teamstructure = {"managers" : managers , "traders" : traders})
++            GLOBAL_STATE["State"] = config.operationalstate
++
++            ## One cycle per horizon, on the horizon boundary, until the process ends
++            GLOBAL_STATE["Scheduler"] = CycleScheduler(period_s = horizon_seconds(horizon), run_cycle = scheduled_cycle)
++            GLOBAL_STATE["Scheduler"].start()
+ 
+-    if GLOBAL_STATE["Arthur"] == None:
+-
+-        instrument = request.args.get("currencyPair", "USD_JPY")
+-        intake = request.args.get("intake", "S5")
+-        horizon = request.args.get("horizon", "M1Q0")
+-        zone = int(request.args.get("zone", "10"))
+-        managers = int(request.args.get("Managers", 1))
+-        traders = int(request.args.get("traders", 1))
+-        mode = request.args.get("mode", "Demo")
+-
+-        ## Local variable to change it without scope violation
+-        platform = OandaTrading(REGISTRY["platform"])
+-
+-        config = ArthurConfig(
+-            base_dir=BASE_DIR,
+-            mode=mode,
+-            vendor=VENDOR,
+-            platform=platform,
+-            registry=REGISTRY,
+-            instrument=instrument,
+-            intake=intake,
+-            horizon=horizon,
+-            zone=zone,
+-            threadpool=ThreadPoolExecutor(max_workers = managers*traders), # Static, dynamic later
+-            state=OperationalState.OPEN
+-        )
+-        
+-        ## Make Platform & Arthur Instance
+-        platform.set_config(config)
+-        platform.set_instrument(instrument) # Hardcoded instrument
+-        GLOBAL_STATE["Arthur"] = Arthur(cfg = config , teamstructure = {"managers" : managers , "traders" : traders})
+-        GLOBAL_STATE["State"] = config.operationalstate
+-    
+-    else:
+-        print(f"GLOBAL_STATE of Arthur INSTANTIATED as of {datetime.now(timezone.utc)} UTC")
+-        
+     arthur = GLOBAL_STATE["Arthur"]
+-    
+-    ## Accounting Information
+-    account_summary = arthur._accounting()["summary"]
+-
+ 
+     ## 4 way switch, not manual in hand switch
+     if request.method == "POST":
+         value = request.form.get("autoSwitch")
+         if value == "AUTOMATED":
+-            GLOBAL_STATE["Arthur"].config.holdingbutton = None
++            arthur.config.holdingbutton = None
+         elif value in OperationalState.__members__:
+-            GLOBAL_STATE["Arthur"].config.holdingbutton = OperationalState[value]
+-
+-    ## Acquire Market information
+-    signal_filename = arthur._acquire_market()["location"]
+-
+-    ## Arthur Ignition
+-    ignition_center = arthur._ignition_A()
++            arthur.config.holdingbutton = OperationalState[value]
+ 
+-    
+-    
+-    if ignition_center == OperationalState.OPEN:
+-        print(f"Currently open...")
+-        GLOBAL_STATE["Arthur"].config.operationalstate = ignition_center
+-        arthur._market_cycle(marketfile=signal_filename)
+-    elif ignition_center == OperationalState.HOLDING:
+-        print(f"Currently holding...")
+-        GLOBAL_STATE["Arthur"].config.operationalstate = ignition_center
+-    else:
+-        print(f"Currently closing...")
+-        GLOBAL_STATE["Arthur"].config.operationalstate = ignition_center
+-        
+-        arthur.shutdown() # Stops thread pooling
+-        
+-        print("Trading out of bounds for current operations.")
+-        requests.post("http://127.0.0.1:5000/shutdownserver")
++    ## Accounting Information, plus how the scheduler is doing
++    account_summary = arthur._accounting()["summary"]
++    account_summary = {**account_summary ,
++                       "Bot state" : arthur.config.operationalstate.value ,
++                       **GLOBAL_STATE["Scheduler"].status()}
+ 
+     return render_template("vault_storage.html", 
+                            accountSummary = account_summary,
+-                           signalFile = signal_filename,
++                           signalFile = "",
+                            instrument = arthur.config.instrument,
+                            refreshRate = arthur.config.horizon,
+                            zone = arthur.config.zone)
+diff --git a/utils/operators.py b/utils/operators.py
+index 547b7fd..0168f0c 100644
+--- a/utils/operators.py
++++ b/utils/operators.py
+@@ -297,8 +297,6 @@ class Arthur():
+         ## Flatten the managers and teams into trader manager pairs
+         trader_pairs = [(m, t) for m in self.managers for t in m.team]    
+ 
+-        market_cycles = []
+-
+         start = time.time()
+         
+         ## Threading set up outside of cycle to only setup once, for concurrency
+@@ -307,14 +305,18 @@ class Arthur():
+         for (m, t) in trader_pairs
+         }
+ 
+-        cycletime = time.time() - start
+-
+-        for f in as_completed(futures): # As completed, append cycles
+-            decision = f.result()
++        decisions = []
++        for f in as_completed(futures): # As completed, collect decisions
++            try:
++                decision = f.result()
++            except Exception as e: # one trader failing must not lose the others
++                decision = {"action" : None , "status" : {"status" : "error" , "detail" : f"{type(e).__name__}: {e}"}}
+             futures[f].record_outcome(decision)     # tell the manager how the trade went
+-            market_cycles.append({"decision": decision , "cycletime" : cycletime})
+-
++            decisions.append(decision)
+ 
++        ## Timed after the work is done, so it covers the whole cycle
++        cycletime = time.time() - start
++        market_cycles = [{"decision" : d , "cycletime" : cycletime} for d in decisions]
+ 
+         cycles = pd.DataFrame(market_cycles)
+     
+@@ -330,6 +332,33 @@ class Arthur():
+ 
+ 
+ 
++    def run_once(self):
++        """
++        run_once performs one full cycle: acquire the market, decide the ignition state, and
++        trade if open. The scheduler calls it once per horizon.
++        It returns the OperationalState.
++
++        Inputs:
++        self : self
++        """
++
++        ## Acquire Market information
++        signal_filename = self._acquire_market()["location"]
++
++        ## Arthur Ignition
++        ignition = self._ignition_A()
++        self.config.operationalstate = ignition
++
++        if ignition == OperationalState.OPEN:
++            print("Currently open...")
++            self._market_cycle(marketfile = signal_filename)
++        elif ignition == OperationalState.HOLDING:
++            print("Currently holding...")
++        else:
++            print("Currently closed...")
++
++        return ignition
++
+     def _accounting(self):
+         """
+         _accounting performs routine aggregate accounting for minimal information needed for guardian
+diff --git a/b/utils/scheduler.py b/utils/scheduler.py
+new file mode 100644
+index 0000000..3989231
+--- /dev/null
++++ b/utils/scheduler.py
+@@ -0,0 +1,137 @@
++### scheduler.py is a modular and agnostic framework that runs one function per horizon on a
++### background thread, aligned to the horizon boundary, so trading does not depend on a browser tab.
++
++## External Dependencies
++import threading # Library for background threads
++import time # Library for time
++import traceback # Library for printing errors from the thread
++from datetime import datetime , timezone # Library for time objects
++
++
++class CycleScheduler:
++    """
++    CycleScheduler calls run_cycle once per period on its own thread. Cycles fire at multiples of
++    the period since UTC midnight (plus a small offset, so the exchange has published the last
++    candle), never overlap, and keep going after an error.
++
++    Functions:
++    __init__ : initialization function
++    seconds_until_next : seconds to the next cycle
++    start : starts the thread
++    stop : stops the thread
++    status : text for the dashboard
++    """
++
++    def __init__(self , period_s : float , run_cycle , offset_s : float = 2.0 , name : str = "arthur-cycle"):
++        """
++        __init__ initializes a CycleScheduler. It returns nothing.
++
++        Inputs:
++        self : self
++        period_s : float - seconds per cycle, the horizon in seconds
++        run_cycle : callable - called once per cycle. Return False to stop the scheduler,
++        anything else to continue. Exceptions are caught, recorded, and the loop continues.
++        offset_s : float - seconds after each boundary before the cycle runs
++        name : str - thread name
++        """
++
++        self.period_s = float(period_s)
++        self.offset_s = float(offset_s)
++        self.run_cycle = run_cycle
++        self._stop = threading.Event()
++        self._thread = threading.Thread(target = self._loop , name = name , daemon = True)
++        self._lock = threading.Lock()   # guards the status fields below
++
++        self.cycles = 0 # cycles run so far
++        self.failures = 0 # consecutive failed cycles
++        self.last_started = None # epoch seconds
++        self.last_duration = None # seconds
++        self.last_error = None # text of the last error, None if the last cycle was fine
++        self.next_run = None # epoch seconds
++        self.overruns = 0 # cycles that took longer than the period
++
++    def seconds_until_next(self , now : float = None) -> float:
++        """
++        seconds_until_next gives the seconds until the next boundary plus offset. Boundaries are
++        multiples of the period since UTC midnight, and the day always restarts at midnight.
++        It returns a float.
++
++        Inputs:
++        self : self
++        now : float - epoch seconds, defaults to the current time
++        """
++
++        now = time.time() if now is None else now
++        midnight = now - (now % 86400)
++        k = int((now - midnight - self.offset_s) // self.period_s) + 1
++        nxt = midnight + k * self.period_s + self.offset_s
++        nxt = min(nxt , midnight + 86400 + self.offset_s) # a new day restarts the grid
++        return nxt - now
++
++    def start(self):
++        """
++        start starts the background thread once. It returns nothing.
++        """
++
++        if not self._thread.is_alive() and not self._stop.is_set():
++            self._thread.start()
++
++    def stop(self , timeout : float = 5.0):
++        """
++        stop asks the loop to end and waits for it, unless called from the loop itself.
++        It returns nothing.
++
++        Inputs:
++        timeout : float - seconds to wait for the thread
++        """
++
++        self._stop.set()
++        if self._thread.is_alive() and threading.current_thread() is not self._thread:
++            self._thread.join(timeout)
++
++    def _loop(self):
++        while True:
++            wait = self.seconds_until_next()
++            with self._lock:
++                self.next_run = time.time() + wait
++            if self._stop.wait(wait): # woken early only by stop()
++                return
++
++            started = time.time()
++            error = None
++            result = None
++            try:
++                result = self.run_cycle()
++            except Exception as e: # one bad cycle must not end the bot
++                error = f"{type(e).__name__}: {e}"
++                traceback.print_exc()
++            duration = time.time() - started
++
++            with self._lock:
++                self.cycles += 1
++                self.last_started = started
++                self.last_duration = duration
++                self.last_error = error
++                self.failures = self.failures + 1 if error else 0
++                if duration > self.period_s:
++                    self.overruns += 1 # missed boundaries are skipped, never queued
++
++            if result is False:
++                return
++
++    def status(self) -> dict:
++        """
++        status gives text for the dashboard cards. It returns a dict.
++        """
++
++        fmt = lambda t: "-" if t is None else datetime.fromtimestamp(t , timezone.utc).strftime("%H:%M:%S")
++        with self._lock:
++            return {
++                "Scheduler" : "running" if self._thread.is_alive() else "stopped",
++                "Last cycle (UTC)" : fmt(self.last_started),
++                "Cycle seconds" : "-" if self.last_duration is None else f"{self.last_duration:.1f}",
++                "Next cycle (UTC)" : fmt(self.next_run),
++                "Cycles run" : str(self.cycles),
++                "Failed in a row" : str(self.failures),
++                "Last error" : self.last_error or "none",
++            }

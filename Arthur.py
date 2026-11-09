@@ -14,7 +14,7 @@ from flask import jsonify , redirect, url_for # Library for common MWF
 import pandas as pd # Library for data manipulation
 import time # Library for time
 import os , glob # Library for operating system communication
-from threading import Event # Library for flagging black swans
+from threading import Event , Lock # Library for flagging black swans and guarding startup
 from concurrent.futures import ThreadPoolExecutor # Threading for MVP, Multiprocessing for later
 
 ## Internal Dependencies
@@ -26,13 +26,17 @@ from utils.load_signal import load_signal_matrix
 from utils.operators import DataVendor , Platform , OandaTrading ,ArthurConfig, Arthur
 from utils.operators import RiskManager , Trader
 from utils.operators import OperationalState
+from utils.granularity import horizon_seconds , check_granularity
+from utils.scheduler import CycleScheduler
 
 ## Load environment variables from the .env file
 load_dotenv()
 
 ## Initialize Flask App and globally hardcoded parameters.
 ArthurFlask = Flask(__name__)
-GLOBAL_STATE = {"Arthur" : None} # Arthur and its corresponding state start at None
+GLOBAL_STATE = {"Arthur" : None , "Scheduler" : None} # Arthur, its scheduler and state start at None
+START_LOCK = Lock() # one startup at a time
+STOP_WHEN_CLOSED = True # True: stop the server when CLOSED. False: stay up and wait for the next cycle
 BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),"data")
 REGISTRY = {"vendor" : None , "platform" : os.getenv("OANDADEMOAPIKEY")} # Can keep .env separate
 VENDOR = DataVendor() # Blank because MVP uses Oanda
@@ -52,11 +56,33 @@ def home():
     return render_template("homepage.html")
 
 
+def scheduled_cycle():
+    """
+    scheduled_cycle is what the scheduler runs once per horizon. It returns False to stop the
+    scheduler, anything else to continue.
+
+    Inputs:
+    None
+    """
+
+    arthur = GLOBAL_STATE["Arthur"]
+    state = arthur.run_once()
+    GLOBAL_STATE["State"] = state
+
+    if state == OperationalState.CLOSED and STOP_WHEN_CLOSED:
+        arthur.shutdown() # Stops thread pooling
+        print("Trading out of bounds for current operations.")
+        requests.post("http://127.0.0.1:5000/shutdownserver")
+        return False
+    return True
+
+
 @ArthurFlask.route("/accounting", methods = ["GET","POST"])
 def enter_vault():
     """
-    enter_vault sets up the dynamic accounting dashboard for current status
-    on trading, and sends dynamically refreshed information to visualize route.
+    enter_vault starts Arthur and its scheduler on the first visit, then shows the dynamic
+    accounting dashboard. Trading runs on the scheduler's own thread, once per horizon, so it
+    no longer depends on this page being open or reloading.
     It returns a rendered template.
 
     Inputs:
@@ -65,84 +91,70 @@ def enter_vault():
     
     global GLOBAL_STATE , BASE_DIR , VENDOR , REGISTRY
 
+    with START_LOCK: # two first visits at once must not start two bots
 
-    if GLOBAL_STATE["Arthur"] == None:
+        if GLOBAL_STATE["Arthur"] is None:
 
-        instrument = request.args.get("currencyPair", "USD_JPY")
-        intake = request.args.get("intake", "S5")
-        horizon = request.args.get("horizon", "M1Q0")
-        zone = int(request.args.get("zone", "10"))
-        managers = int(request.args.get("Managers", 1))
-        traders = int(request.args.get("traders", 1))
-        mode = request.args.get("mode", "Demo")
+            instrument = request.args.get("currencyPair", "USD_JPY")
+            intake = request.args.get("intake", "S5")
+            horizon = request.args.get("horizon", "M1Q0")
+            zone = int(request.args.get("zone", "10"))
+            managers = int(request.args.get("Managers", 1))
+            traders = int(request.args.get("traders", 1))
+            mode = request.args.get("mode", "Demo")
 
-        ## Local variable to change it without scope violation
-        platform = OandaTrading(REGISTRY["platform"])
+            ## Refuse a bad pairing now, not inside the scheduler thread every cycle
+            try:
+                check_granularity(intake, horizon)
+            except ValueError as e:
+                return str(e), 400
 
-        config = ArthurConfig(
-            base_dir=BASE_DIR,
-            mode=mode,
-            vendor=VENDOR,
-            platform=platform,
-            registry=REGISTRY,
-            instrument=instrument,
-            intake=intake,
-            horizon=horizon,
-            zone=zone,
-            threadpool=ThreadPoolExecutor(max_workers = managers*traders), # Static, dynamic later
-            state=OperationalState.OPEN
-        )
-        
-        ## Make Platform & Arthur Instance
-        platform.set_config(config)
-        platform.set_instrument(instrument) # Hardcoded instrument
-        GLOBAL_STATE["Arthur"] = Arthur(cfg = config , teamstructure = {"managers" : managers , "traders" : traders})
-        GLOBAL_STATE["State"] = config.operationalstate
-    
-    else:
-        print(f"GLOBAL_STATE of Arthur INSTANTIATED as of {datetime.now(timezone.utc)} UTC")
-        
+            ## Local variable to change it without scope violation
+            platform = OandaTrading(REGISTRY["platform"])
+
+            config = ArthurConfig(
+                base_dir=BASE_DIR,
+                mode=mode,
+                vendor=VENDOR,
+                platform=platform,
+                registry=REGISTRY,
+                instrument=instrument,
+                intake=intake,
+                horizon=horizon,
+                zone=zone,
+                threadpool=ThreadPoolExecutor(max_workers = managers*traders), # Static, dynamic later
+                state=OperationalState.OPEN
+            )
+            
+            ## Make Platform & Arthur Instance
+            platform.set_config(config)
+            platform.set_instrument(instrument) # Hardcoded instrument
+            GLOBAL_STATE["Arthur"] = Arthur(cfg = config , teamstructure = {"managers" : managers , "traders" : traders})
+            GLOBAL_STATE["State"] = config.operationalstate
+
+            ## One cycle per horizon, on the horizon boundary, until the process ends
+            GLOBAL_STATE["Scheduler"] = CycleScheduler(period_s = horizon_seconds(horizon), run_cycle = scheduled_cycle)
+            GLOBAL_STATE["Scheduler"].start()
+
     arthur = GLOBAL_STATE["Arthur"]
-    
-    ## Accounting Information
-    account_summary = arthur._accounting()["summary"]
-
 
     ## 4 way switch, not manual in hand switch
     if request.method == "POST":
         value = request.form.get("autoSwitch")
         if value == "AUTOMATED":
-            GLOBAL_STATE["Arthur"].config.holdingbutton = None
+            arthur.config.holdingbutton = None
         elif value in OperationalState.__members__:
-            GLOBAL_STATE["Arthur"].config.holdingbutton = OperationalState[value]
+            arthur.config.holdingbutton = OperationalState[value]
 
-    ## Acquire Market information
-    signal_filename = arthur._acquire_market()["location"]
-
-    ## Arthur Ignition
-    ignition_center = arthur._ignition_A()
-
-    
-    
-    if ignition_center == OperationalState.OPEN:
-        print(f"Currently open...")
-        GLOBAL_STATE["Arthur"].config.operationalstate = ignition_center
-        arthur._market_cycle(marketfile=signal_filename)
-    elif ignition_center == OperationalState.HOLDING:
-        print(f"Currently holding...")
-        GLOBAL_STATE["Arthur"].config.operationalstate = ignition_center
-    else:
-        print(f"Currently closing...")
-        GLOBAL_STATE["Arthur"].config.operationalstate = ignition_center
-        
-        arthur.shutdown() # Stops thread pooling
-        
-        print("Trading out of bounds for current operations.")
-        requests.post("http://127.0.0.1:5000/shutdownserver")
+    ## Accounting Information, plus how the scheduler is doing
+    account_summary = arthur._accounting()["summary"]
+    account_summary = {**account_summary ,
+                       "Bot state" : arthur.config.operationalstate.value ,
+                       **GLOBAL_STATE["Scheduler"].status()}
 
     return render_template("vault_storage.html", 
                            accountSummary = account_summary,
-                           signalFile = signal_filename,
+                           signalFile = "",
                            instrument = arthur.config.instrument,
                            refreshRate = arthur.config.horizon,
                            zone = arthur.config.zone)
