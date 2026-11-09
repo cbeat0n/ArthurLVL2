@@ -1,0 +1,112 @@
+diff --git a/Arthur.py b/Arthur.py
+index 3abc0c1..daaed74 100644
+--- a/Arthur.py
++++ b/Arthur.py
+@@ -13,7 +13,7 @@ from flask import jsonify , redirect, url_for # Library for common MWF
+ import pandas as pd # Library for data manipulation
+ import time # Library for time
+ import os , glob , re # Library for operating system communication and pattern matching
+-from threading import Event , Lock # Library for flagging black swans and guarding startup
++from threading import Event , Lock , RLock # Library for flagging black swans and guarding startup
+ from concurrent.futures import ThreadPoolExecutor # Threading for MVP, Multiprocessing for later
+ 
+ ## Internal Dependencies
+@@ -36,6 +36,7 @@ load_dotenv()
+ ArthurFlask = Flask(__name__)
+ GLOBAL_STATE = {"Arthur" : None , "Scheduler" : None} # Arthur, its scheduler and state start at None
+ START_LOCK = Lock() # one startup at a time
++STATE_LOCK = RLock() # guards reads and writes of GLOBAL_STATE. Held for a moment only, never across a cycle or a network call.
+ STOP_WHEN_CLOSED = True # True: stop the server when CLOSED. False: stay up and wait for the next cycle
+ ALLOW_LIVE = False # True: the homepage form may start Live mode. Keep False until Live keys, account and trading are ready. Change it here only, never from a URL or form.
+ BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),"data")
+@@ -69,11 +70,13 @@ def stop_server():
+     None
+     """
+ 
+-    scheduler = GLOBAL_STATE.get("Scheduler")
++    with STATE_LOCK:
++        scheduler = GLOBAL_STATE.get("Scheduler")
++        arthur = GLOBAL_STATE.get("Arthur")
++
+     if scheduler is not None:
+         scheduler.stop() # does not wait on itself when called from its own thread
+ 
+-    arthur = GLOBAL_STATE.get("Arthur")
+     if arthur is not None:
+         arthur.shutdown() # Stops thread pooling
+ 
+@@ -90,9 +93,13 @@ def scheduled_cycle():
+     None
+     """
+ 
+-    arthur = GLOBAL_STATE["Arthur"]
+-    state = arthur.run_once()
+-    GLOBAL_STATE["State"] = state
++    with STATE_LOCK:
++        arthur = GLOBAL_STATE["Arthur"]
++
++    state = arthur.run_once() # not under the lock: a cycle can take seconds
++
++    with STATE_LOCK:
++        GLOBAL_STATE["State"] = state
+ 
+     if state == OperationalState.CLOSED and STOP_WHEN_CLOSED:
+         print("Trading out of bounds for current operations.")
+@@ -118,7 +125,10 @@ def start_arthur():
+ 
+     with START_LOCK: # two submits at once must not start two bots
+ 
+-        if GLOBAL_STATE["Arthur"] is not None: # already running, never rebuild it
++        with STATE_LOCK:
++            running = GLOBAL_STATE["Arthur"] is not None
++
++        if running: # already running, never rebuild it
+             return redirect(url_for("enter_vault") , code = 303)
+ 
+         form = request.form
+@@ -174,12 +184,18 @@ def start_arthur():
+         ## Make Platform & Arthur Instance
+         platform.set_config(config)
+         platform.set_instrument(instrument) # Hardcoded instrument
+-        GLOBAL_STATE["Arthur"] = Arthur(cfg = config , teamstructure = {"managers" : managers , "traders" : traders})
+-        GLOBAL_STATE["State"] = config.operationalstate
++        arthur = Arthur(cfg = config , teamstructure = {"managers" : managers , "traders" : traders})
+ 
+         ## One cycle per horizon, on the horizon boundary, until the process ends
+-        GLOBAL_STATE["Scheduler"] = CycleScheduler(period_s = horizon_seconds(horizon), run_cycle = scheduled_cycle)
+-        GLOBAL_STATE["Scheduler"].start()
++        scheduler = CycleScheduler(period_s = horizon_seconds(horizon), run_cycle = scheduled_cycle)
++
++        ## Publish all three together, so no page ever sees Arthur without its scheduler
++        with STATE_LOCK:
++            GLOBAL_STATE["Arthur"] = arthur
++            GLOBAL_STATE["State"] = config.operationalstate
++            GLOBAL_STATE["Scheduler"] = scheduler
++
++        scheduler.start()
+ 
+     return redirect(url_for("enter_vault") , code = 303)
+ 
+@@ -196,8 +212,11 @@ def enter_vault():
+     None
+     """
+ 
+-    arthur = GLOBAL_STATE["Arthur"]
+-    if arthur is None: # nothing started yet: view only, so go to the form
++    with STATE_LOCK:
++        arthur = GLOBAL_STATE["Arthur"]
++        scheduler = GLOBAL_STATE["Scheduler"]
++
++    if arthur is None or scheduler is None: # nothing started yet: view only, so go to the form
+         return redirect("/")
+ 
+     ## 4 way switch, not manual in hand switch
+@@ -219,7 +238,7 @@ def enter_vault():
+     account_summary = {**account_summary ,
+                        "Bot state" : arthur.config.operationalstate.value ,
+                        **manager_cards ,
+-                       **GLOBAL_STATE["Scheduler"].status()}
++                       **scheduler.status()}
+ 
+     return render_template("vault_storage.html", 
+                            accountSummary = account_summary,
