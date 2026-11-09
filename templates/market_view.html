@@ -46,7 +46,7 @@
     }
 
     // Poll often enough to pick up a new bar soon after the vault writes it.
-    const POLL_MS = Math.min(getRefreshMs(HORIZON), 15000);
+    const POLL_MS = Math.min(getRefreshMs(HORIZON), 5000);
 
     const ACTIONS = ["BUY", "SELL", "HOLD"];
     let lastSignature = null;
@@ -58,7 +58,7 @@
     }
 
     function setStatus(text) { document.getElementById("status").textContent = text; }
-    function fmt(v) { return (typeof v === "number") ? v.toFixed(4) : String(v); }
+    function fmt(v) { return (typeof v === "number") ? v.toFixed(4) : (v == null ? "-" : String(v)); }
 
     function draw(data) {
       if (!data || data.length === 0) return;
@@ -95,23 +95,28 @@
     }
 
     async function poll() {
+      let data = null;
       try {
         const r = await fetch("/visualize/data?instrument=" + encodeURIComponent(INSTRUMENT), { cache: "no-store" });
-        if (r.ok) {
-          const data = await r.json();
-          if (data.length) show(data, "checked");
-        } else {
-          setStatus("no data yet (" + r.status + "), retrying");
-        }
+        if (r.ok) { data = await r.json(); }
+        else { setStatus("no data yet (" + r.status + "), retrying"); }
       } catch (e) {
         setStatus("server unreachable, retrying");
+      }
+      if (data && data.length) {
+        try { show(data, "checked"); }
+        catch (e) { setStatus("could not draw chart: " + e.message); }
       }
       setTimeout(poll, POLL_MS);
     }
 
-    // First paint from the data the server embedded, then keep polling.
-    const first = JSON.parse(document.getElementById("signal-data").textContent);
-    if (first.length) show(first, "loaded");
+    // First paint from the data the server embedded. Polling starts even if this fails.
+    try {
+      const first = JSON.parse(document.getElementById("signal-data").textContent);
+      if (first.length) show(first, "loaded");
+    } catch (e) {
+      setStatus("could not draw first paint: " + e.message);
+    }
     setTimeout(poll, POLL_MS);
   </script>
 </body>
