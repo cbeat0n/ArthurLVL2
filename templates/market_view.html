@@ -49,6 +49,18 @@
     // Poll often enough to pick up a new bar soon after the vault writes it.
     const POLL_MS = Math.min(getRefreshMs(HORIZON), 5000);
     const PLOT_HEIGHT = 420;   // the boxes have no CSS height, so responsive charts need one or they collapse
+    // Racing Form look for the charts. Newsprint paper, printer's ink, and lines that match overhang.css.
+    const INK = "#2a2118";
+    const PAPER = "#efe6cf";
+    const GRID = "#d8cba8";
+    const FONT = { family: "Garamond, Georgia, serif", color: INK, size: 14 };
+    const COLORS = { price: "#2a2118", buy: "#1f5d3a", sell: "#7a1f1f", margin: "#a07a1c", bs: "#8a5a1a", thetamu: "#3f5560" };
+    const AXIS = { gridcolor: GRID, zerolinecolor: "#b5a678", linecolor: INK, tickfont: FONT, automargin: true };
+    function layout(title, xt, yt) {
+      return { title: { text: title, font: Object.assign({}, FONT, { size: 18 }) }, height: PLOT_HEIGHT, font: FONT,
+               paper_bgcolor: PAPER, plot_bgcolor: PAPER, margin: { t: 50, r: 25, b: 20, l: 20 },
+               xaxis: Object.assign({ title: xt, nticks: 8, tickangle: 0 }, AXIS), yaxis: Object.assign({ title: yt }, AXIS) };
+    }
     const MAX_BACKOFF_MS = 30000;
     const FETCH_TIMEOUT_MS = 10000;
     // The newest bar is stale when it is older than three horizons (and at least 3 minutes).
@@ -68,7 +80,7 @@
     function setStatus(text, warn) {
       const el = document.getElementById("status");
       el.textContent = text;
-      el.style.color = warn ? "#b00020" : "";
+      el.classList.toggle("warn", !!warn);
     }
 
     // Timestamps look like "2026-11-09 17:46:00+00:00". Safari needs the T.
@@ -93,17 +105,17 @@
 
       const line = (id, x, y, name, color, title, ytitle) => Plotly.react(id,
         [{ x: x, y: y, mode: "lines", name: name, line: { color: color } }],
-        { title: title, height: PLOT_HEIGHT, xaxis: { title: "Time" }, yaxis: { title: ytitle } }, { responsive: true });
+        layout(title, "Time", ytitle), { responsive: true });
       const dots = (id, x, y, name, color, title, xt, yt) => Plotly.react(id,
         [{ x: x, y: y, mode: "markers", name: name, marker: { color: color, size: 6 } }],
-        { title: title, height: PLOT_HEIGHT, xaxis: { title: xt }, yaxis: { title: yt } }, { responsive: true });
+        layout(title, xt, yt), { responsive: true });
 
-      line("plot-price", t, col("value"), "Price", "blue", "Price vs Time", "Price");
-      line("plot-B", t, col("B"), "Buying Pressure", "green", "Buying Pressure vs Time", "B");
-      line("plot-S", t, col("S"), "Selling Pressure", "red", "Selling Pressure vs Time", "S");
-      line("plot-M", t, col("Margin"), "B-S", "purple", "B-S vs Time", "B-S");
-      dots("plot-BS-space", col("B"), col("S"), "(B,S)", "orange", "(B,S) Space", "B", "S");
-      dots("plot-UV-space", col("Theta"), col("Mu"), "(theta,mu)", "teal", "(Theta, Mu) Space", "Theta", "Mu");
+      line("plot-price", t, col("value"), "Price", COLORS.price, "Price vs Time", "Price");
+      line("plot-B", t, col("B"), "Buying Pressure", COLORS.buy, "Buying Pressure vs Time", "B");
+      line("plot-S", t, col("S"), "Selling Pressure", COLORS.sell, "Selling Pressure vs Time", "S");
+      line("plot-M", t, col("Margin"), "B-S", COLORS.margin, "B-S vs Time", "B-S");
+      dots("plot-BS-space", col("B"), col("S"), "(B,S)", COLORS.bs, "(B,S) Space", "B", "S");
+      dots("plot-UV-space", col("Theta"), col("Mu"), "(theta,mu)", COLORS.thetamu, "(Theta, Mu) Space", "Theta", "Mu");
     }
 
     function show(data, note) {

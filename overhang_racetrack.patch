@@ -1,0 +1,194 @@
+diff --git a/static/overhang.css b/static/overhang.css
+index ce12cf9..4ab7338 100644
+--- a/static/overhang.css
++++ b/static/overhang.css
+@@ -1,61 +1,93 @@
+ /* overhang.css is a modular and agnostic framework for the market_view.html dashboard.
+-It features soothing yet bright colors for the sunshine, smokey burnt colors for the
+-connection to the Parlor Room and drink, and light blue green colors for the grass
+-and horses.
++   Theme: the Overhang, the grandstand above the track at dusk. Racing green turf for the
++   walls, brass tote-board plaques for the numbers, and Racing Form newsprint for the charts.
++   It shares its brass, charcoal and parchment with oldmoney.css and vaultshine.css, so all
++   three rooms belong to the same building.
+ */
+ 
++:root {
++  --turf: #12281c;          /* racing green, track turf at night */
++  --turf-deep: #0a1810;     /* shadow under the grandstand */
++  --charcoal: #1a1a1a;      /* casino charcoal, shared with oldmoney.css */
++  --wood: #2d2417;          /* dark oak, shared with vaultshine.css */
++  --brass: #d4af37;         /* brass plaque text */
++  --brass-trim: #a98c53;    /* brass edge */
++  --parchment: #e6e2d3;     /* parchment text on dark */
++  --newsprint: #efe6cf;     /* Racing Form paper */
++  --newsprint-edge: #cdbf9c;
++  --ink: #2a2118;           /* printer's ink */
++  --oxblood: #7a1f1f;       /* selling, and warnings */
++  --warn: #e07b6b;          /* warning text on dark */
++}
++
++html {
++  min-height: 100%;
++  background: var(--turf-deep); /* shows below short pages and behind overscroll */
++}
++
+ body {
++  min-height: 100vh;
++  box-sizing: border-box;
+   margin: 0;
+   font-family: "Garamond", "Georgia", serif;
+-  background: linear-gradient(
+-    120deg,
+-    rgba(255, 186, 73, 0.9),   /* burnt rum orange */
+-    rgba(252, 228, 159, 0.8),  /* bright morning yellow */
+-    rgba(160, 215, 200, 0.6)   /* seafoam turquoise dew */
+-  );
+-  color: #2e2a1f; /* smoky brown */
++  background: linear-gradient(160deg, var(--turf) 0%, var(--turf-deep) 60%, var(--charcoal) 100%);
++  color: var(--parchment);
+   padding: 2rem;
+ }
+ 
+-/* Header placard */
++/* Header placard: a brass plaque screwed to the rail */
+ h1 {
+   text-align: center;
+-  font-size: 2rem;
+-  margin-bottom: 2rem;
+-  color: #6a3e1f; /* burnt rum */
+-  text-shadow: 0 2px 6px rgba(255, 233, 180, 0.8);
+-  border-bottom: 3px solid #e6a344;
++  font-size: 2.2rem;
++  margin: 0 0 1rem;
++  color: var(--brass);
++  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
++  border-bottom: 3px solid var(--brass-trim);
+   padding-bottom: 0.5rem;
+ }
+ 
+-/* Info boxes for Theta and Action */
++.subheader {
++  text-align: center;
++  margin-bottom: 1.5rem;
++  color: #c0b090;
++}
++.subheader strong { color: var(--parchment); }
++.subheader .warn { color: var(--warn); font-weight: bold; }
++
++/* Info boxes: brass tote-board plaques on dark wood */
++.info-boxes { text-align: center; }
+ .info-box {
+   display: inline-block;
+-  margin: 0.5rem 1rem;
+-  padding: 1rem 1.5rem;
+-  border-radius: 12px;
+-  background: rgba(255, 255, 255, 0.5);
+-  backdrop-filter: blur(6px);
+-  box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+-  font-size: 1rem;
++  min-width: 5.5rem;
++  margin: 0.5rem 0.6rem;
++  padding: 0.8rem 1.3rem;
++  border-radius: 6px;
++  background: linear-gradient(180deg, var(--wood), var(--turf-deep));
++  border: 2px solid var(--brass-trim);
++  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(0, 0, 0, 0.5);
++  color: var(--brass);
++  font-size: 1.05rem;
+   font-weight: bold;
++  text-align: center;
+ }
+ 
+-/* Theta and Action: slightly different accents */
+-.theta-box {
+-  border: 2px solid #b25f1f; /* whiskey accent */
+-}
+-.action-box {
+-  border: 2px solid #3b6e68; /* deep turquoise */
+-}
+-
+-/* Plot containers: windows into the track */
++/* Plot containers: Racing Form sheets pinned to the rail. The charts have no CSS height of
++   their own, market_view.html gives every chart a fixed height. */
+ .plot-container {
+-  margin: 2rem auto;
++  margin: 1.5rem auto;
+   padding: 1rem;
+-  background: rgba(255,255,255,0.6);
+-  border-radius: 16px;
+-  box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+   max-width: 900px;
++  background: var(--newsprint);
++  color: var(--ink);
++  border: 1px solid var(--newsprint-edge);
++  border-radius: 4px;
++  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.55);
+ }
+ 
++/* Phones: less padding, boxes stack tighter */
++@media (max-width: 600px) {
++  body { padding: 1rem; }
++  h1 { font-size: 1.6rem; }
++  .info-box { margin: 0.3rem; padding: 0.6rem 0.9rem; }
++  .plot-container { padding: 0.4rem; }
++}
+diff --git a/templates/market_view.html b/templates/market_view.html
+index 978b4ba..a4bc353 100644
+--- a/templates/market_view.html
++++ b/templates/market_view.html
+@@ -49,6 +49,18 @@
+     // Poll often enough to pick up a new bar soon after the vault writes it.
+     const POLL_MS = Math.min(getRefreshMs(HORIZON), 5000);
+     const PLOT_HEIGHT = 420;   // the boxes have no CSS height, so responsive charts need one or they collapse
++    // Racing Form look for the charts. Newsprint paper, printer's ink, and lines that match overhang.css.
++    const INK = "#2a2118";
++    const PAPER = "#efe6cf";
++    const GRID = "#d8cba8";
++    const FONT = { family: "Garamond, Georgia, serif", color: INK, size: 14 };
++    const COLORS = { price: "#2a2118", buy: "#1f5d3a", sell: "#7a1f1f", margin: "#a07a1c", bs: "#8a5a1a", thetamu: "#3f5560" };
++    const AXIS = { gridcolor: GRID, zerolinecolor: "#b5a678", linecolor: INK, tickfont: FONT, automargin: true };
++    function layout(title, xt, yt) {
++      return { title: { text: title, font: Object.assign({}, FONT, { size: 18 }) }, height: PLOT_HEIGHT, font: FONT,
++               paper_bgcolor: PAPER, plot_bgcolor: PAPER, margin: { t: 50, r: 25, b: 20, l: 20 },
++               xaxis: Object.assign({ title: xt, nticks: 8, tickangle: 0 }, AXIS), yaxis: Object.assign({ title: yt }, AXIS) };
++    }
+     const MAX_BACKOFF_MS = 30000;
+     const FETCH_TIMEOUT_MS = 10000;
+     // The newest bar is stale when it is older than three horizons (and at least 3 minutes).
+@@ -68,7 +80,7 @@
+     function setStatus(text, warn) {
+       const el = document.getElementById("status");
+       el.textContent = text;
+-      el.style.color = warn ? "#b00020" : "";
++      el.classList.toggle("warn", !!warn);
+     }
+ 
+     // Timestamps look like "2026-11-09 17:46:00+00:00". Safari needs the T.
+@@ -93,17 +105,17 @@
+ 
+       const line = (id, x, y, name, color, title, ytitle) => Plotly.react(id,
+         [{ x: x, y: y, mode: "lines", name: name, line: { color: color } }],
+-        { title: title, height: PLOT_HEIGHT, xaxis: { title: "Time" }, yaxis: { title: ytitle } }, { responsive: true });
++        layout(title, "Time", ytitle), { responsive: true });
+       const dots = (id, x, y, name, color, title, xt, yt) => Plotly.react(id,
+         [{ x: x, y: y, mode: "markers", name: name, marker: { color: color, size: 6 } }],
+-        { title: title, height: PLOT_HEIGHT, xaxis: { title: xt }, yaxis: { title: yt } }, { responsive: true });
+-
+-      line("plot-price", t, col("value"), "Price", "blue", "Price vs Time", "Price");
+-      line("plot-B", t, col("B"), "Buying Pressure", "green", "Buying Pressure vs Time", "B");
+-      line("plot-S", t, col("S"), "Selling Pressure", "red", "Selling Pressure vs Time", "S");
+-      line("plot-M", t, col("Margin"), "B-S", "purple", "B-S vs Time", "B-S");
+-      dots("plot-BS-space", col("B"), col("S"), "(B,S)", "orange", "(B,S) Space", "B", "S");
+-      dots("plot-UV-space", col("Theta"), col("Mu"), "(theta,mu)", "teal", "(Theta, Mu) Space", "Theta", "Mu");
++        layout(title, xt, yt), { responsive: true });
++
++      line("plot-price", t, col("value"), "Price", COLORS.price, "Price vs Time", "Price");
++      line("plot-B", t, col("B"), "Buying Pressure", COLORS.buy, "Buying Pressure vs Time", "B");
++      line("plot-S", t, col("S"), "Selling Pressure", COLORS.sell, "Selling Pressure vs Time", "S");
++      line("plot-M", t, col("Margin"), "B-S", COLORS.margin, "B-S vs Time", "B-S");
++      dots("plot-BS-space", col("B"), col("S"), "(B,S)", COLORS.bs, "(B,S) Space", "B", "S");
++      dots("plot-UV-space", col("Theta"), col("Mu"), "(theta,mu)", COLORS.thetamu, "(Theta, Mu) Space", "Theta", "Mu");
+     }
+ 
+     function show(data, note) {
