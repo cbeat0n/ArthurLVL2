@@ -32,6 +32,7 @@ from utils.generic import load_final_data
 
 from utils.granularity import horizon_seconds, intake_seconds, check_granularity
 from utils.http_helpers import OandaSession , json_or_raise
+from utils.atomic import write_csv_atomic
 
 
 FILL = 0.00000000314      # transform_signal's warm-up fill value
@@ -333,7 +334,7 @@ class Arthur():
         ## Make the directory if it doesn't exist
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
-        cycles.to_csv(full_path, index=False)
+        write_csv_atomic(cycles, full_path)
 
 
 

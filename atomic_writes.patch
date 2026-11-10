@@ -1,0 +1,123 @@
+diff --git a/utils/atomic.py b/utils/atomic.py
+new file mode 100644
+index 0000000..f0bdb74
+--- /dev/null
++++ b/utils/atomic.py
+@@ -0,0 +1,35 @@
++### atomic.py holds the one safe way Arthur writes a CSV to disk.
++
++## External Dependencies
++import os # Library for operating system communication
++import pandas as pd # Library for data manipulation
++
++
++def write_csv_atomic(df : pd.DataFrame , full_path : str):
++    """
++    write_csv_atomic writes a DataFrame to a CSV so that the file at full_path is always either
++    the old complete file or the new complete file, never a half written one. It writes to a
++    temporary file next to the target and then swaps it in with os.replace, which is a single step.
++    The temporary name ends in .csv.tmp, so a search for *.csv never sees it. If anything fails
++    the temporary file is removed and the error is raised.
++    It returns the filepath.
++
++    Inputs:
++    df : pd.DataFrame - the DataFrame to write
++    full_path : str - the finished filepath
++    """
++
++    tmp_path = f"{full_path}.{os.getpid()}.csv.tmp"
++
++    try:
++        with open(tmp_path, "w", newline = "") as f:
++            df.to_csv(f, index = False)
++            f.flush()
++            os.fsync(f.fileno()) # the bytes are on disk before the swap
++        os.replace(tmp_path , full_path)
++    except BaseException:
++        if os.path.exists(tmp_path):
++            os.remove(tmp_path)
++        raise
++
++    return full_path
+diff --git a/utils/load_auto.py b/utils/load_auto.py
+index 7734dfd..679d4b0 100644
+--- a/utils/load_auto.py
++++ b/utils/load_auto.py
+@@ -5,6 +5,7 @@
+ import pandas as pd # Library for data manipulation
+ import os # Library for operating system communications
+ from datetime import datetime # Library for time objects
++from utils.atomic import write_csv_atomic # Library for safe file writes
+ 
+ 
+ 
+@@ -18,6 +19,6 @@ def load_final_data(final_data,final_filepath):
+     final_filepath : str - the finalized records filepath
+     """
+     
+-    final_data.to_csv(final_filepath, index=False)
++    write_csv_atomic(final_data, final_filepath)
+ 
+     return {"file" : final_filepath}
+\ No newline at end of file
+diff --git a/utils/load_cleaned.py b/utils/load_cleaned.py
+index 1bee53e..bf89c81 100644
+--- a/utils/load_cleaned.py
++++ b/utils/load_cleaned.py
+@@ -5,6 +5,7 @@
+ import pandas as pd # Library for data manipulation
+ import os # Library for operating system communication
+ from datetime import datetime , timezone # Library for time objects
++from utils.atomic import write_csv_atomic # Library for safe file writes
+ 
+ 
+ def load_cleaned_data(base_dir : str , cleaned_data : pd.DataFrame , instrument : str, safe_timestamp : str):
+@@ -27,6 +28,6 @@ def load_cleaned_data(base_dir : str , cleaned_data : pd.DataFrame , instrument
+     ## Make the directory if it doesn't exist
+     os.makedirs(os.path.dirname(full_path), exist_ok=True)
+ 
+-    cleaned_data.to_csv(full_path, index=False)
++    write_csv_atomic(cleaned_data, full_path)
+ 
+     return {"file" : full_path}
+diff --git a/utils/load_signal.py b/utils/load_signal.py
+index b328e0b..8fcfeb5 100644
+--- a/utils/load_signal.py
++++ b/utils/load_signal.py
+@@ -5,6 +5,7 @@
+ import pandas as pd # Library for data manipulation
+ import os # Library for operating system communication
+ from datetime import datetime , timezone # Library for time objects 
++from utils.atomic import write_csv_atomic # Library for safe file writes
+ 
+ 
+ def load_signal_matrix(base_dir : str , signal_matrix : pd.DataFrame, instrument : str , safe_timestamp : str):
+@@ -27,6 +28,6 @@ def load_signal_matrix(base_dir : str , signal_matrix : pd.DataFrame, instrument
+     ## Make the directory if it doesn't exist
+     os.makedirs(os.path.dirname(full_path), exist_ok=True)
+ 
+-    signal_matrix.to_csv(full_path, index=False)
++    write_csv_atomic(signal_matrix, full_path)
+ 
+     return {"file" : full_path}
+diff --git a/utils/operators.py b/utils/operators.py
+index 4f0a59d..c55657f 100644
+--- a/utils/operators.py
++++ b/utils/operators.py
+@@ -32,6 +32,7 @@ from utils.generic import load_final_data
+ 
+ from utils.granularity import horizon_seconds, intake_seconds, check_granularity
+ from utils.http_helpers import OandaSession , json_or_raise
++from utils.atomic import write_csv_atomic
+ 
+ 
+ FILL = 0.00000000314      # transform_signal's warm-up fill value
+@@ -333,7 +334,7 @@ class Arthur():
+         ## Make the directory if it doesn't exist
+         os.makedirs(os.path.dirname(full_path), exist_ok=True)
+ 
+-        cycles.to_csv(full_path, index=False)
++        write_csv_atomic(cycles, full_path)
+ 
+ 
+ 

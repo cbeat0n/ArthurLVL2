@@ -5,6 +5,7 @@
 import pandas as pd # Library for data manipulation
 import os # Library for operating system communication
 from datetime import datetime , timezone # Library for time objects
+from utils.atomic import write_csv_atomic # Library for safe file writes
 
 
 def load_cleaned_data(base_dir : str , cleaned_data : pd.DataFrame , instrument : str, safe_timestamp : str):
@@ -27,6 +28,6 @@ def load_cleaned_data(base_dir : str , cleaned_data : pd.DataFrame , instrument 
     ## Make the directory if it doesn't exist
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
-    cleaned_data.to_csv(full_path, index=False)
+    write_csv_atomic(cleaned_data, full_path)
 
     return {"file" : full_path}

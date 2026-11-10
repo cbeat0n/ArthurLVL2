@@ -5,6 +5,7 @@
 import pandas as pd # Library for data manipulation
 import os # Library for operating system communications
 from datetime import datetime # Library for time objects
+from utils.atomic import write_csv_atomic # Library for safe file writes
 
 
 
@@ -18,6 +19,6 @@ def load_final_data(final_data,final_filepath):
     final_filepath : str - the finalized records filepath
     """
     
-    final_data.to_csv(final_filepath, index=False)
+    write_csv_atomic(final_data, final_filepath)
 
     return {"file" : final_filepath}
