@@ -1,0 +1,41 @@
+diff --git a/utils/operators.py b/utils/operators.py
+index 81b9982..4f0a59d 100644
+--- a/utils/operators.py
++++ b/utils/operators.py
+@@ -526,15 +526,24 @@ class Trader:
+         ## Make order function partially inherited by platform.
+         order = self.config.platform.make_order(self.config.mode , self.config.instrument , side , lot_size , reduce_only)
+ 
++        ## OANDA's fill says what the order did to the account. A buy that opens a trade has tradeOpened.
++        ## A reduce-only sell has tradeReduced (part of a trade) or tradesClosed (whole trades), never tradeOpened.
+         fill = order.get("orderFillTransaction")
+         if fill:
+             opened = fill.get("tradeOpened") or {}
++            reduced = fill.get("tradeReduced") or {}
++            reductions = ([reduced] if reduced else []) + (fill.get("tradesClosed") or [])
+             return {"status" : "filled" , "raw" : order , "order_id" : fill.get("orderID") ,
+-                    "trade_id" : opened.get("tradeID")}
++                    "trade_id" : opened.get("tradeID") ,
++                    "units_closed" : sum(abs(float(t.get("units") or 0)) for t in reductions) ,
++                    "realized_pl" : sum(float(t.get("realizedPL") or 0) for t in reductions)}
+ 
++        ## FOK cancels the whole order when it can't fill. A reduce-only sell bigger than the position
++        ## is cancelled with POSITION_TO_REDUCE_TOO_SMALL and sells nothing (it is not cut down).
+         cancel = order.get("orderCancelTransaction")
+         if cancel:
+-            return {"status" : "killed" , "raw" : order , "order_id" : cancel.get("orderID")}
++            return {"status" : "killed" , "raw" : order , "order_id" : cancel.get("orderID") ,
++                    "reason" : cancel.get("reason")}
+ 
+         return {"status" : "unknown" , "raw" : order}
+                 
+@@ -629,7 +638,8 @@ class Trader:
+ 
+         try:
+             order = self.make_order(side = side , lot_size = units , reduce_only = reduce_only)
+-            if order["status"] == "filled" and order.get("trade_id"):
++            ## Only a buy that opened a trade is closed right away. A reduce-only sell is never "closed" again.
++            if not reduce_only and order["status"] == "filled" and order.get("trade_id"):
+                 return {"action" : action , "status" : self.close_trade(order["trade_id"])}
+             return {"action" : action , "status" : order}
+         except (ValueError , requests.RequestException) as e:
