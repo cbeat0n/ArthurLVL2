@@ -1,0 +1,449 @@
+diff --git a/Arthur.py b/Arthur.py
+index bf35479..788f4b5 100644
+--- a/Arthur.py
++++ b/Arthur.py
+@@ -34,6 +34,28 @@ load_dotenv()
+ 
+ ## Initialize Flask App and globally hardcoded parameters.
+ ArthurFlask = Flask(__name__)
++ArthurFlask.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0 # static files are re-checked every load, so edited CSS is never stale
++
++
++@ArthurFlask.after_request
++def guard_headers(response):
++    """
++    guard_headers adds safety headers to every response. Pages and data are never cached, so a
++    reload or the back button can't show an old account or an old switch state. The pages can't
++    be placed inside another site's frame, which stops a hidden overlay clicking the switch.
++    It returns the response.
++
++    Inputs:
++    response : Response - the response Flask is about to send
++    """
++
++    if not request.path.startswith("/static/"):
++        response.headers["Cache-Control"] = "no-store"
++    response.headers["X-Frame-Options"] = "DENY"
++    response.headers["X-Content-Type-Options"] = "nosniff"
++    response.headers["Referrer-Policy"] = "no-referrer"
++    return response
++
+ GLOBAL_STATE = {"Arthur" : None , "Scheduler" : None} # Arthur, its scheduler and state start at None
+ START_LOCK = Lock() # one startup at a time
+ STATE_LOCK = RLock() # guards reads and writes of GLOBAL_STATE. Held for a moment only, never across a cycle or a network call.
+@@ -226,6 +248,10 @@ def enter_vault():
+             arthur.config.holdingbutton = None
+         elif value in OperationalState.__members__:
+             arthur.config.holdingbutton = OperationalState[value]
++        ## Post, redirect, get: a reload of the page after this can never send the switch again
++        return redirect(url_for("enter_vault") , code = 303)
++
++    manual = arthur.config.holdingbutton.name if arthur.config.holdingbutton is not None else "AUTOMATED"
+ 
+     ## Accounting Information, plus how the scheduler is doing
+     account_summary = arthur._accounting()["summary"]
+@@ -237,6 +263,7 @@ def enter_vault():
+ 
+     account_summary = {**account_summary ,
+                        "Bot state" : arthur.config.operationalstate.value ,
++                       "Manual switch" : manual ,
+                        **manager_cards ,
+                        **scheduler.status()}
+ 
+@@ -244,7 +271,8 @@ def enter_vault():
+                            accountSummary = account_summary,
+                            instrument = arthur.config.instrument,
+                            refreshRate = arthur.config.horizon,
+-                           zone = arthur.config.zone)
++                           zone = arthur.config.zone,
++                           manualSwitch = manual)
+ 
+ def latest_signal_records(instrument):
+     """Newest signal file for the instrument as a list of records, or None."""
+diff --git a/templates/homepage.html b/templates/homepage.html
+index 1ce5c6a..1c23158 100644
+--- a/templates/homepage.html
++++ b/templates/homepage.html
+@@ -1,14 +1,13 @@
++<!DOCTYPE html>
+ <!-- 
+   homepage.html is an agnostic framework to setup the Flask delivery
+   for the dynamic webpage and UI that Arthur uses to provide
+   trading information.
+ -->
+-
+-
+-<!DOCTYPE html>
+ <html lang="en">
+ <head>
+   <meta charset="UTF-8">
++  <meta name="viewport" content="width=device-width, initial-scale=1">
+   <link rel="stylesheet" href="{{ url_for('static', filename='oldmoney.css') }}">
+   <title>Arthur — Parlor Room</title>
+ </head>
+@@ -23,7 +22,7 @@
+       <h1 class="hero-title">-What are you interested in today, Sir?-</h1>
+ 
+       <!-- Control Panel -->
+-      <form method="POST" action="/start" target="_blank">
++      <form method="POST" action="/start" target="_blank" id="startForm" autocomplete="off">
+         <!-- Single FX pair -->
+         <label for="currencyPair">FX Pair:</label>
+         <select name="currencyPair" id="currencyPair" required>
+@@ -103,7 +102,7 @@
+         </select>
+ 
+         <!-- Number of Managers, MVP = 1-->
+-        <label for="managers"># Managers:</label>
++        <label for="Managers"># Managers:</label>
+         <select name="Managers" id="Managers" required>
+           <option value="1" selected>1</option>
+         </select>
+@@ -127,16 +126,62 @@
+         {% if allowLive %}
+         <!-- Live mode is real money, so it needs this ticked -->
+         <label for="confirmLive"><input type="checkbox" name="confirmLive" id="confirmLive" value="yes"> Live uses real money. Tick to confirm.</label>
++        {% else %}
++        <div class="muted" id="liveNote">Live mode is switched off (ALLOW_LIVE in Arthur.py).</div>
+         {% endif %}
+-      
+-      <!-- Vault Button -->
+-        <button type ="submit">Vault & Overhang Access</button>
+-      
++
++        <!-- Vault Button -->
++        <button type="submit" id="startButton">Vault &amp; Overhang Access</button>
++        <div class="muted" id="formNote" role="status" aria-live="polite"></div>
++
+       </form>
+ 
+     </main>
+   </div>
+ 
++  <script>
++  (function () {
++    // Mirror of utils/granularity.py so a bad pairing can't be chosen. The server checks again.
++    // A horizon MxQn lasts 60*x + 15*n seconds and must be a whole number of intake candles.
++    const INTAKE_SECONDS = { S5: 5, S10: 10, S15: 15, S30: 30 };
++    const intake = document.getElementById("intake");
++    const horizon = document.getElementById("horizon");
++    const note = document.getElementById("formNote");
++
++    function horizonSeconds(value) {
++      const m = /^M(\d+)Q([0-3])$/.exec(value);
++      return m ? 60 * parseInt(m[1]) + 15 * parseInt(m[2]) : NaN;
++    }
++
++    function applyIntake() {
++      const step = INTAKE_SECONDS[intake.value];
++      let firstValid = null;
++      Array.from(horizon.options).forEach(function (opt) {
++        const ok = horizonSeconds(opt.value) % step === 0;
++        opt.disabled = !ok;
++        if (ok && !firstValid) firstValid = opt;
++      });
++      if (horizon.selectedOptions[0] && horizon.selectedOptions[0].disabled && firstValid) {
++        horizon.value = firstValid.value;
++        note.textContent = "Horizon changed to " + firstValid.text + ": " + intake.value + " candles need a horizon that is a whole number of candles.";
++      } else {
++        note.textContent = "";
++      }
++    }
++    intake.addEventListener("change", applyIntake);
++    applyIntake();
++
++    // One start per click. The server ignores a second start, but this stops a double click opening two tabs.
++    const form = document.getElementById("startForm");
++    const button = document.getElementById("startButton");
++    form.addEventListener("submit", function () {
++      button.disabled = true;
++      setTimeout(function () { button.disabled = false; }, 4000);
++    });
++    window.addEventListener("pageshow", function () { button.disabled = false; applyIntake(); });
++  })();
++  </script>
++
+ </body>
+ </html>
+ 
+diff --git a/templates/market_view.html b/templates/market_view.html
+index db8ef4d..5264b3a 100644
+--- a/templates/market_view.html
++++ b/templates/market_view.html
+@@ -1,10 +1,11 @@
+-<!-- market_view.html shows the newest signal for an instrument. It polls /visualize/data and
+- redraws in place, so a failed request never destroys the page and the chart keeps updating. -->
+-
+ <!DOCTYPE html>
++<!-- market_view.html shows the newest signal for an instrument. It polls /visualize/data and
++ redraws in place, so a failed request never destroys the page and the chart keeps updating.
++ It warns when the newest bar is old, so a stopped bot is never mistaken for a live chart. -->
+ <html lang="en">
+ <head>
+   <meta charset="UTF-8">
++  <meta name="viewport" content="width=device-width, initial-scale=1">
+   <link rel="stylesheet" href="{{ url_for('static', filename='overhang.css') }}">
+   <title>Arthur | Market View - {{ instrument }}</title>
+   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+@@ -13,7 +14,7 @@
+   <h1>Arthur | Market View</h1>
+   <div class="subheader">
+     Instrument: <strong>{{ instrument }}</strong> • Horizon: <strong>{{ refreshRate }}</strong> • Zone: <strong>{{ zone }}</strong>
+-    • <span id="status">loading</span>
++    • <span id="status" role="status" aria-live="polite">loading</span>
+   </div>
+ 
+   <div class="info-boxes">
+@@ -47,9 +48,15 @@
+ 
+     // Poll often enough to pick up a new bar soon after the vault writes it.
+     const POLL_MS = Math.min(getRefreshMs(HORIZON), 5000);
++    const MAX_BACKOFF_MS = 30000;
++    const FETCH_TIMEOUT_MS = 10000;
++    // The newest bar is stale when it is older than three horizons (and at least 3 minutes).
++    const STALE_MS = Math.max(3 * getRefreshMs(HORIZON), 180000);
+ 
+     const ACTIONS = ["BUY", "SELL", "HOLD"];
+     let lastSignature = null;
++    let failures = 0;
++    let timer = null;
+ 
+     function hhmmss(ts) {
+       const s = String(ts);
+@@ -57,11 +64,22 @@
+       return time.replace("Z", "").split("+")[0].split(".")[0];
+     }
+ 
+-    function setStatus(text) { document.getElementById("status").textContent = text; }
++    function setStatus(text, warn) {
++      const el = document.getElementById("status");
++      el.textContent = text;
++      el.style.color = warn ? "#b00020" : "";
++    }
++
++    // Timestamps look like "2026-11-09 17:46:00+00:00". Safari needs the T.
++    function ageMs(ts) {
++      const t = Date.parse(String(ts).replace(" ", "T"));
++      return isNaN(t) ? null : Date.now() - t;
++    }
+     function fmt(v) { return (typeof v === "number") ? v.toFixed(4) : (v == null ? "-" : String(v)); }
+ 
+     function draw(data) {
+       if (!data || data.length === 0) return;
++      if (typeof Plotly === "undefined") throw new Error("Plotly did not load (offline or blocked)");
+       const t = data.map(d => hhmmss(d.timestamp));
+       const col = k => data.map(d => d[k]);
+       const last = data[data.length - 1];
+@@ -74,10 +92,10 @@
+ 
+       const line = (id, x, y, name, color, title, ytitle) => Plotly.react(id,
+         [{ x: x, y: y, mode: "lines", name: name, line: { color: color } }],
+-        { title: title, xaxis: { title: "Time" }, yaxis: { title: ytitle } });
++        { title: title, xaxis: { title: "Time" }, yaxis: { title: ytitle } }, { responsive: true });
+       const dots = (id, x, y, name, color, title, xt, yt) => Plotly.react(id,
+         [{ x: x, y: y, mode: "markers", name: name, marker: { color: color, size: 6 } }],
+-        { title: title, xaxis: { title: xt }, yaxis: { title: yt } });
++        { title: title, xaxis: { title: xt }, yaxis: { title: yt } }, { responsive: true });
+ 
+       line("plot-price", t, col("value"), "Price", "blue", "Price vs Time", "Price");
+       line("plot-B", t, col("B"), "Buying Pressure", "green", "Buying Pressure vs Time", "B");
+@@ -91,33 +109,48 @@
+       const last = data[data.length - 1];
+       const signature = data.length + "|" + JSON.stringify(last);
+       if (signature !== lastSignature) { draw(data); lastSignature = signature; }
+-      setStatus(note + " " + new Date().toLocaleTimeString() + " • last bar " + hhmmss(last.timestamp));
++      let text = note + " " + new Date().toLocaleTimeString() + " • last bar " + hhmmss(last.timestamp);
++      const age = ageMs(last.timestamp);
++      const stale = age !== null && age > STALE_MS;
++      if (stale) text += " • STALE: " + Math.round(age / 60000) + " min old (bot stopped or market closed?)";
++      setStatus(text, stale);
+     }
+ 
+     async function poll() {
+       let data = null;
++      const controller = new AbortController();
++      const timeout = setTimeout(function () { controller.abort(); }, FETCH_TIMEOUT_MS);   // a hung request can't stop polling
+       try {
+-        const r = await fetch("/visualize/data?instrument=" + encodeURIComponent(INSTRUMENT), { cache: "no-store" });
+-        if (r.ok) { data = await r.json(); }
+-        else { setStatus("no data yet (" + r.status + "), retrying"); }
++        const r = await fetch("/visualize/data?instrument=" + encodeURIComponent(INSTRUMENT), { cache: "no-store", signal: controller.signal });
++        if (r.ok) { data = await r.json(); failures = 0; }
++        else { failures += 1; setStatus("no data yet (" + r.status + "), retrying", true); }
+       } catch (e) {
+-        setStatus("server unreachable, retrying");
++        failures += 1;
++        setStatus("server unreachable, retrying", true);
++      } finally {
++        clearTimeout(timeout);
+       }
+       if (data && data.length) {
+         try { show(data, "checked"); }
+-        catch (e) { setStatus("could not draw chart: " + e.message); }
++        catch (e) { setStatus("could not draw chart: " + e.message, true); }
+       }
+-      setTimeout(poll, POLL_MS);
++      // Back off while the server is failing, up to 30 s, and return to normal pace when it answers.
++      timer = setTimeout(poll, Math.min(POLL_MS * Math.pow(2, Math.min(failures, 5)), MAX_BACKOFF_MS) || POLL_MS);
+     }
+ 
++    // A tab that was hidden catches up the moment you look at it.
++    document.addEventListener("visibilitychange", function () {
++      if (!document.hidden) { clearTimeout(timer); poll(); }
++    });
++
+     // First paint from the data the server embedded. Polling starts even if this fails.
+     try {
+       const first = JSON.parse(document.getElementById("signal-data").textContent);
+       if (first.length) show(first, "loaded");
+     } catch (e) {
+-      setStatus("could not draw first paint: " + e.message);
++      setStatus("could not draw first paint: " + e.message, true);
+     }
+-    setTimeout(poll, POLL_MS);
++    timer = setTimeout(poll, POLL_MS);
+   </script>
+ </body>
+ </html>
+diff --git a/templates/vault_storage.html b/templates/vault_storage.html
+index 69328da..b62c204 100644
+--- a/templates/vault_storage.html
++++ b/templates/vault_storage.html
+@@ -1,38 +1,37 @@
++<!DOCTYPE html>
+ <!-- vault_storage.html is a modular and agnostic framework that shows an account wide summary
+  for the process of Arthur, including a summary of the accounting at hand
+- and the instance of Arthur being ran at present moment. -->
+-
+-
+-<!DOCTYPE html>
++ and the instance of Arthur being ran at present moment.
++ The summary refreshes in place with a background request, so a slow or dead server never
++ replaces the page with a browser error and never re-sends the switch form. -->
+ <html lang="en">
+ <head>
+   <meta charset="UTF-8">
++  <meta name="viewport" content="width=device-width, initial-scale=1">
+   <link rel="stylesheet" href="{{ url_for('static', filename='vaultshine.css') }}">
+   <title>Arthur | Vault Storage</title>
+-  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script> 
+-  <!-- Static version, watch this parameter-->
+ </head>
+ <body>
+   <header>
+     <div>
+       <h1>Vault Storage</h1>
+-      <div class="muted">Instrument: <strong>{{ instrument|default('—') }}</strong> • Horizon: <strong>{{ refreshRate|default('—') }}</strong></div>
++      <div class="muted">Instrument: <strong>{{ instrument|default('—') }}</strong> • Horizon: <strong>{{ refreshRate|default('—') }}</strong>
++        • <span id="refreshStatus" role="status" aria-live="polite">loaded</span></div>
+     </div>
+     <div class="row">
+-      <a class="btn" target = '_blank' href="/visualize/?instrument={{ instrument|default('') }}&horizon={{ refreshRate|default('') }}&zone={{ zone|default('') }}">Open Market View</a>
+-      <form method="post" action="/accounting">
++      <a class="btn" target="_blank" rel="noopener" href="/visualize/?instrument={{ instrument|default('')|urlencode }}&horizon={{ refreshRate|default('')|urlencode }}&zone={{ zone|default('')|urlencode }}">Open Market View</a>
++      <form method="post" action="/accounting" id="switchForm">
+         <label for="autoSwitch">Automation Switch:</label>
+-          <select name="autoSwitch" id="autoSwitch"required>
+-            <option value="OPEN">Open</option>
+-            <option value="HOLDING">Holding</option>
+-            <option value="CLOSED">Closed</option>
+-            <option value="AUTOMATED">Automated</option>
++          <select name="autoSwitch" id="autoSwitch" required>
++            {% for value, label in [("OPEN", "Open"), ("HOLDING", "Holding"), ("CLOSED", "Closed"), ("AUTOMATED", "Automated")] %}
++            <option value="{{ value }}"{% if manualSwitch == value %} selected{% endif %}>{{ label }}</option>
++            {% endfor %}
+           </select>
+-          <button type="submit">Apply</button>
++          <button type="submit" id="switchButton">Apply</button>
+       </form>
+     </div>
+   </header>
+-  <main>
++  <main id="summary">
+     <!-- Account Summary -->
+     <section class="card">
+       <h2>Account Summary</h2>
+@@ -52,30 +51,65 @@
+   </main>
+   <script>
+   (function () {
+-    
++    const HORIZON = {{ refreshRate | tojson }};   // e.g. M1Q0, M2Q1
++
++    // Horizon "M2Q1" -> 2.25 minutes -> ms. Falls back to 60 s if the string is unusable.
+     function getRefreshMs(horizon) {
+-      const match = horizon.match(/M(\d+)(?:Q(\d))?/);
++      const match = /M(\d+)(?:Q([0-3]))?/.exec(horizon || "");
++      if (!match) return 60000;
++      const minutes = parseInt(match[1]) + (match[2] ? parseInt(match[2]) / 4 : 0);
++      return minutes > 0 ? minutes * 60 * 1000 : 60000;
++    }
+ 
+-      const minutes = parseInt(match[1]);
+-      const quarters = match[2] ? parseInt(match[2]) / 4 : 0;
+-      const totalMinutes = minutes + quarters;
++    // Each load of this page asks OANDA for the account, so never poll faster than every 15 s.
++    const POLL_MS = Math.max(15000, Math.min(getRefreshMs(HORIZON), 60000));
++    const status = document.getElementById("refreshStatus");
++    const summary = document.getElementById("summary");
++    const select = document.getElementById("autoSwitch");
++    let inflight = false;
++    let failures = 0;
+ 
+-      return totalMinutes * 60 * 1000;
++    async function refresh() {
++      if (inflight) return;           // never stack requests
++      inflight = true;
++      const controller = new AbortController();
++      const timeout = setTimeout(function () { controller.abort(); }, 12000);
++      try {
++        const r = await fetch("/accounting", { cache: "no-store", credentials: "same-origin", signal: controller.signal });
++        if (r.redirected) { status.textContent = "bot not running"; return; }
++        if (!r.ok) { throw new Error("HTTP " + r.status); }
++        const doc = new DOMParser().parseFromString(await r.text(), "text/html");
++        const fresh = doc.getElementById("summary");
++        if (!fresh) { throw new Error("unexpected page"); }
++        summary.innerHTML = fresh.innerHTML;
++        const freshSelect = doc.getElementById("autoSwitch");
++        if (freshSelect && document.activeElement !== select) { select.value = freshSelect.value; }
++        failures = 0;
++        status.textContent = "updated " + new Date().toLocaleTimeString();
++      } catch (e) {
++        failures += 1;
++        status.textContent = failures >= 3 ? "server not answering: stopped, or down?" : "refresh failed, retrying";
++      } finally {
++        clearTimeout(timeout);
++        inflight = false;
++      }
+     }
+ 
+-    
+-    const horizon = "{{ refreshRate }}"; // e.g. M2, M2Q1, M5, etc.
+-    const rr = getRefreshMs(horizon);
+-    console.log(`UI Refresh: ${horizon} → ${rr / 1000}s`);
++    setInterval(function () { if (!document.hidden) { refresh(); } }, POLL_MS);
++    document.addEventListener("visibilitychange", function () { if (!document.hidden) { refresh(); } });
+ 
+-    if (!isNaN(rr) && rr > 0) {
+-      setInterval(() => {
+-        location.reload();
+-      }, rr);
+-    }
+-    })();
++    // Switch form: confirm before stopping the bot, and send each click once.
++    const form = document.getElementById("switchForm");
++    const button = document.getElementById("switchButton");
++    form.addEventListener("submit", function (event) {
++      if (select.value === "CLOSED" && !window.confirm("Closed stops trading and shuts the server down at the next cycle. Continue?")) {
++        event.preventDefault();
++        return;
++      }
++      button.disabled = true;
++    });
++    window.addEventListener("pageshow", function () { button.disabled = false; });
++  })();
+   </script>
+ </body>
+ </html>
+-
+-

@@ -1,10 +1,11 @@
-<!-- market_view.html shows the newest signal for an instrument. It polls /visualize/data and
- redraws in place, so a failed request never destroys the page and the chart keeps updating. -->
-
 <!DOCTYPE html>
+<!-- market_view.html shows the newest signal for an instrument. It polls /visualize/data and
+ redraws in place, so a failed request never destroys the page and the chart keeps updating.
+ It warns when the newest bar is old, so a stopped bot is never mistaken for a live chart. -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="{{ url_for('static', filename='overhang.css') }}">
   <title>Arthur | Market View - {{ instrument }}</title>
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
@@ -13,7 +14,7 @@
   <h1>Arthur | Market View</h1>
   <div class="subheader">
     Instrument: <strong>{{ instrument }}</strong> • Horizon: <strong>{{ refreshRate }}</strong> • Zone: <strong>{{ zone }}</strong>
-    • <span id="status">loading</span>
+    • <span id="status" role="status" aria-live="polite">loading</span>
   </div>
 
   <div class="info-boxes">
@@ -47,9 +48,15 @@
 
     // Poll often enough to pick up a new bar soon after the vault writes it.
     const POLL_MS = Math.min(getRefreshMs(HORIZON), 5000);
+    const MAX_BACKOFF_MS = 30000;
+    const FETCH_TIMEOUT_MS = 10000;
+    // The newest bar is stale when it is older than three horizons (and at least 3 minutes).
+    const STALE_MS = Math.max(3 * getRefreshMs(HORIZON), 180000);
 
     const ACTIONS = ["BUY", "SELL", "HOLD"];
     let lastSignature = null;
+    let failures = 0;
+    let timer = null;
 
     function hhmmss(ts) {
       const s = String(ts);
@@ -57,11 +64,22 @@
       return time.replace("Z", "").split("+")[0].split(".")[0];
     }
 
-    function setStatus(text) { document.getElementById("status").textContent = text; }
+    function setStatus(text, warn) {
+      const el = document.getElementById("status");
+      el.textContent = text;
+      el.style.color = warn ? "#b00020" : "";
+    }
+
+    // Timestamps look like "2026-11-09 17:46:00+00:00". Safari needs the T.
+    function ageMs(ts) {
+      const t = Date.parse(String(ts).replace(" ", "T"));
+      return isNaN(t) ? null : Date.now() - t;
+    }
     function fmt(v) { return (typeof v === "number") ? v.toFixed(4) : (v == null ? "-" : String(v)); }
 
     function draw(data) {
       if (!data || data.length === 0) return;
+      if (typeof Plotly === "undefined") throw new Error("Plotly did not load (offline or blocked)");
       const t = data.map(d => hhmmss(d.timestamp));
       const col = k => data.map(d => d[k]);
       const last = data[data.length - 1];
@@ -74,10 +92,10 @@
 
       const line = (id, x, y, name, color, title, ytitle) => Plotly.react(id,
         [{ x: x, y: y, mode: "lines", name: name, line: { color: color } }],
-        { title: title, xaxis: { title: "Time" }, yaxis: { title: ytitle } });
+        { title: title, xaxis: { title: "Time" }, yaxis: { title: ytitle } }, { responsive: true });
       const dots = (id, x, y, name, color, title, xt, yt) => Plotly.react(id,
         [{ x: x, y: y, mode: "markers", name: name, marker: { color: color, size: 6 } }],
-        { title: title, xaxis: { title: xt }, yaxis: { title: yt } });
+        { title: title, xaxis: { title: xt }, yaxis: { title: yt } }, { responsive: true });
 
       line("plot-price", t, col("value"), "Price", "blue", "Price vs Time", "Price");
       line("plot-B", t, col("B"), "Buying Pressure", "green", "Buying Pressure vs Time", "B");
@@ -91,33 +109,48 @@
       const last = data[data.length - 1];
       const signature = data.length + "|" + JSON.stringify(last);
       if (signature !== lastSignature) { draw(data); lastSignature = signature; }
-      setStatus(note + " " + new Date().toLocaleTimeString() + " • last bar " + hhmmss(last.timestamp));
+      let text = note + " " + new Date().toLocaleTimeString() + " • last bar " + hhmmss(last.timestamp);
+      const age = ageMs(last.timestamp);
+      const stale = age !== null && age > STALE_MS;
+      if (stale) text += " • STALE: " + Math.round(age / 60000) + " min old (bot stopped or market closed?)";
+      setStatus(text, stale);
     }
 
     async function poll() {
       let data = null;
+      const controller = new AbortController();
+      const timeout = setTimeout(function () { controller.abort(); }, FETCH_TIMEOUT_MS);   // a hung request can't stop polling
       try {
-        const r = await fetch("/visualize/data?instrument=" + encodeURIComponent(INSTRUMENT), { cache: "no-store" });
-        if (r.ok) { data = await r.json(); }
-        else { setStatus("no data yet (" + r.status + "), retrying"); }
+        const r = await fetch("/visualize/data?instrument=" + encodeURIComponent(INSTRUMENT), { cache: "no-store", signal: controller.signal });
+        if (r.ok) { data = await r.json(); failures = 0; }
+        else { failures += 1; setStatus("no data yet (" + r.status + "), retrying", true); }
       } catch (e) {
-        setStatus("server unreachable, retrying");
+        failures += 1;
+        setStatus("server unreachable, retrying", true);
+      } finally {
+        clearTimeout(timeout);
       }
       if (data && data.length) {
         try { show(data, "checked"); }
-        catch (e) { setStatus("could not draw chart: " + e.message); }
+        catch (e) { setStatus("could not draw chart: " + e.message, true); }
       }
-      setTimeout(poll, POLL_MS);
+      // Back off while the server is failing, up to 30 s, and return to normal pace when it answers.
+      timer = setTimeout(poll, Math.min(POLL_MS * Math.pow(2, Math.min(failures, 5)), MAX_BACKOFF_MS) || POLL_MS);
     }
+
+    // A tab that was hidden catches up the moment you look at it.
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden) { clearTimeout(timer); poll(); }
+    });
 
     // First paint from the data the server embedded. Polling starts even if this fails.
     try {
       const first = JSON.parse(document.getElementById("signal-data").textContent);
       if (first.length) show(first, "loaded");
     } catch (e) {
-      setStatus("could not draw first paint: " + e.message);
+      setStatus("could not draw first paint: " + e.message, true);
     }
-    setTimeout(poll, POLL_MS);
+    timer = setTimeout(poll, POLL_MS);
   </script>
 </body>
 </html>

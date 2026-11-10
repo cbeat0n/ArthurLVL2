@@ -1,38 +1,37 @@
+<!DOCTYPE html>
 <!-- vault_storage.html is a modular and agnostic framework that shows an account wide summary
  for the process of Arthur, including a summary of the accounting at hand
- and the instance of Arthur being ran at present moment. -->
-
-
-<!DOCTYPE html>
+ and the instance of Arthur being ran at present moment.
+ The summary refreshes in place with a background request, so a slow or dead server never
+ replaces the page with a browser error and never re-sends the switch form. -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="{{ url_for('static', filename='vaultshine.css') }}">
   <title>Arthur | Vault Storage</title>
-  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script> 
-  <!-- Static version, watch this parameter-->
 </head>
 <body>
   <header>
     <div>
       <h1>Vault Storage</h1>
-      <div class="muted">Instrument: <strong>{{ instrument|default('—') }}</strong> • Horizon: <strong>{{ refreshRate|default('—') }}</strong></div>
+      <div class="muted">Instrument: <strong>{{ instrument|default('—') }}</strong> • Horizon: <strong>{{ refreshRate|default('—') }}</strong>
+        • <span id="refreshStatus" role="status" aria-live="polite">loaded</span></div>
     </div>
     <div class="row">
-      <a class="btn" target = '_blank' href="/visualize/?instrument={{ instrument|default('') }}&horizon={{ refreshRate|default('') }}&zone={{ zone|default('') }}">Open Market View</a>
-      <form method="post" action="/accounting">
+      <a class="btn" target="_blank" rel="noopener" href="/visualize/?instrument={{ instrument|default('')|urlencode }}&horizon={{ refreshRate|default('')|urlencode }}&zone={{ zone|default('')|urlencode }}">Open Market View</a>
+      <form method="post" action="/accounting" id="switchForm">
         <label for="autoSwitch">Automation Switch:</label>
-          <select name="autoSwitch" id="autoSwitch"required>
-            <option value="OPEN">Open</option>
-            <option value="HOLDING">Holding</option>
-            <option value="CLOSED">Closed</option>
-            <option value="AUTOMATED">Automated</option>
+          <select name="autoSwitch" id="autoSwitch" required>
+            {% for value, label in [("OPEN", "Open"), ("HOLDING", "Holding"), ("CLOSED", "Closed"), ("AUTOMATED", "Automated")] %}
+            <option value="{{ value }}"{% if manualSwitch == value %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
           </select>
-          <button type="submit">Apply</button>
+          <button type="submit" id="switchButton">Apply</button>
       </form>
     </div>
   </header>
-  <main>
+  <main id="summary">
     <!-- Account Summary -->
     <section class="card">
       <h2>Account Summary</h2>
@@ -52,30 +51,65 @@
   </main>
   <script>
   (function () {
-    
+    const HORIZON = {{ refreshRate | tojson }};   // e.g. M1Q0, M2Q1
+
+    // Horizon "M2Q1" -> 2.25 minutes -> ms. Falls back to 60 s if the string is unusable.
     function getRefreshMs(horizon) {
-      const match = horizon.match(/M(\d+)(?:Q(\d))?/);
-
-      const minutes = parseInt(match[1]);
-      const quarters = match[2] ? parseInt(match[2]) / 4 : 0;
-      const totalMinutes = minutes + quarters;
-
-      return totalMinutes * 60 * 1000;
+      const match = /M(\d+)(?:Q([0-3]))?/.exec(horizon || "");
+      if (!match) return 60000;
+      const minutes = parseInt(match[1]) + (match[2] ? parseInt(match[2]) / 4 : 0);
+      return minutes > 0 ? minutes * 60 * 1000 : 60000;
     }
 
-    
-    const horizon = "{{ refreshRate }}"; // e.g. M2, M2Q1, M5, etc.
-    const rr = getRefreshMs(horizon);
-    console.log(`UI Refresh: ${horizon} → ${rr / 1000}s`);
+    // Each load of this page asks OANDA for the account, so never poll faster than every 15 s.
+    const POLL_MS = Math.max(15000, Math.min(getRefreshMs(HORIZON), 60000));
+    const status = document.getElementById("refreshStatus");
+    const summary = document.getElementById("summary");
+    const select = document.getElementById("autoSwitch");
+    let inflight = false;
+    let failures = 0;
 
-    if (!isNaN(rr) && rr > 0) {
-      setInterval(() => {
-        location.reload();
-      }, rr);
+    async function refresh() {
+      if (inflight) return;           // never stack requests
+      inflight = true;
+      const controller = new AbortController();
+      const timeout = setTimeout(function () { controller.abort(); }, 12000);
+      try {
+        const r = await fetch("/accounting", { cache: "no-store", credentials: "same-origin", signal: controller.signal });
+        if (r.redirected) { status.textContent = "bot not running"; return; }
+        if (!r.ok) { throw new Error("HTTP " + r.status); }
+        const doc = new DOMParser().parseFromString(await r.text(), "text/html");
+        const fresh = doc.getElementById("summary");
+        if (!fresh) { throw new Error("unexpected page"); }
+        summary.innerHTML = fresh.innerHTML;
+        const freshSelect = doc.getElementById("autoSwitch");
+        if (freshSelect && document.activeElement !== select) { select.value = freshSelect.value; }
+        failures = 0;
+        status.textContent = "updated " + new Date().toLocaleTimeString();
+      } catch (e) {
+        failures += 1;
+        status.textContent = failures >= 3 ? "server not answering: stopped, or down?" : "refresh failed, retrying";
+      } finally {
+        clearTimeout(timeout);
+        inflight = false;
+      }
     }
-    })();
+
+    setInterval(function () { if (!document.hidden) { refresh(); } }, POLL_MS);
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) { refresh(); } });
+
+    // Switch form: confirm before stopping the bot, and send each click once.
+    const form = document.getElementById("switchForm");
+    const button = document.getElementById("switchButton");
+    form.addEventListener("submit", function (event) {
+      if (select.value === "CLOSED" && !window.confirm("Closed stops trading and shuts the server down at the next cycle. Continue?")) {
+        event.preventDefault();
+        return;
+      }
+      button.disabled = true;
+    });
+    window.addEventListener("pageshow", function () { button.disabled = false; });
+  })();
   </script>
 </body>
 </html>
-
-

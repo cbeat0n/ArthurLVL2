@@ -1,14 +1,13 @@
+<!DOCTYPE html>
 <!-- 
   homepage.html is an agnostic framework to setup the Flask delivery
   for the dynamic webpage and UI that Arthur uses to provide
   trading information.
 -->
-
-
-<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="{{ url_for('static', filename='oldmoney.css') }}">
   <title>Arthur — Parlor Room</title>
 </head>
@@ -23,7 +22,7 @@
       <h1 class="hero-title">-What are you interested in today, Sir?-</h1>
 
       <!-- Control Panel -->
-      <form method="POST" action="/start" target="_blank">
+      <form method="POST" action="/start" target="_blank" id="startForm" autocomplete="off">
         <!-- Single FX pair -->
         <label for="currencyPair">FX Pair:</label>
         <select name="currencyPair" id="currencyPair" required>
@@ -103,7 +102,7 @@
         </select>
 
         <!-- Number of Managers, MVP = 1-->
-        <label for="managers"># Managers:</label>
+        <label for="Managers"># Managers:</label>
         <select name="Managers" id="Managers" required>
           <option value="1" selected>1</option>
         </select>
@@ -127,15 +126,61 @@
         {% if allowLive %}
         <!-- Live mode is real money, so it needs this ticked -->
         <label for="confirmLive"><input type="checkbox" name="confirmLive" id="confirmLive" value="yes"> Live uses real money. Tick to confirm.</label>
+        {% else %}
+        <div class="muted" id="liveNote">Live mode is switched off (ALLOW_LIVE in Arthur.py).</div>
         {% endif %}
-      
-      <!-- Vault Button -->
-        <button type ="submit">Vault & Overhang Access</button>
-      
+
+        <!-- Vault Button -->
+        <button type="submit" id="startButton">Vault &amp; Overhang Access</button>
+        <div class="muted" id="formNote" role="status" aria-live="polite"></div>
+
       </form>
 
     </main>
   </div>
+
+  <script>
+  (function () {
+    // Mirror of utils/granularity.py so a bad pairing can't be chosen. The server checks again.
+    // A horizon MxQn lasts 60*x + 15*n seconds and must be a whole number of intake candles.
+    const INTAKE_SECONDS = { S5: 5, S10: 10, S15: 15, S30: 30 };
+    const intake = document.getElementById("intake");
+    const horizon = document.getElementById("horizon");
+    const note = document.getElementById("formNote");
+
+    function horizonSeconds(value) {
+      const m = /^M(\d+)Q([0-3])$/.exec(value);
+      return m ? 60 * parseInt(m[1]) + 15 * parseInt(m[2]) : NaN;
+    }
+
+    function applyIntake() {
+      const step = INTAKE_SECONDS[intake.value];
+      let firstValid = null;
+      Array.from(horizon.options).forEach(function (opt) {
+        const ok = horizonSeconds(opt.value) % step === 0;
+        opt.disabled = !ok;
+        if (ok && !firstValid) firstValid = opt;
+      });
+      if (horizon.selectedOptions[0] && horizon.selectedOptions[0].disabled && firstValid) {
+        horizon.value = firstValid.value;
+        note.textContent = "Horizon changed to " + firstValid.text + ": " + intake.value + " candles need a horizon that is a whole number of candles.";
+      } else {
+        note.textContent = "";
+      }
+    }
+    intake.addEventListener("change", applyIntake);
+    applyIntake();
+
+    // One start per click. The server ignores a second start, but this stops a double click opening two tabs.
+    const form = document.getElementById("startForm");
+    const button = document.getElementById("startButton");
+    form.addEventListener("submit", function () {
+      button.disabled = true;
+      setTimeout(function () { button.disabled = false; }, 4000);
+    });
+    window.addEventListener("pageshow", function () { button.disabled = false; applyIntake(); });
+  })();
+  </script>
 
 </body>
 </html>

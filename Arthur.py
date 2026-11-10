@@ -34,6 +34,28 @@ load_dotenv()
 
 ## Initialize Flask App and globally hardcoded parameters.
 ArthurFlask = Flask(__name__)
+ArthurFlask.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0 # static files are re-checked every load, so edited CSS is never stale
+
+
+@ArthurFlask.after_request
+def guard_headers(response):
+    """
+    guard_headers adds safety headers to every response. Pages and data are never cached, so a
+    reload or the back button can't show an old account or an old switch state. The pages can't
+    be placed inside another site's frame, which stops a hidden overlay clicking the switch.
+    It returns the response.
+
+    Inputs:
+    response : Response - the response Flask is about to send
+    """
+
+    if not request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
 GLOBAL_STATE = {"Arthur" : None , "Scheduler" : None} # Arthur, its scheduler and state start at None
 START_LOCK = Lock() # one startup at a time
 STATE_LOCK = RLock() # guards reads and writes of GLOBAL_STATE. Held for a moment only, never across a cycle or a network call.
@@ -226,6 +248,10 @@ def enter_vault():
             arthur.config.holdingbutton = None
         elif value in OperationalState.__members__:
             arthur.config.holdingbutton = OperationalState[value]
+        ## Post, redirect, get: a reload of the page after this can never send the switch again
+        return redirect(url_for("enter_vault") , code = 303)
+
+    manual = arthur.config.holdingbutton.name if arthur.config.holdingbutton is not None else "AUTOMATED"
 
     ## Accounting Information, plus how the scheduler is doing
     account_summary = arthur._accounting()["summary"]
@@ -237,6 +263,7 @@ def enter_vault():
 
     account_summary = {**account_summary ,
                        "Bot state" : arthur.config.operationalstate.value ,
+                       "Manual switch" : manual ,
                        **manager_cards ,
                        **scheduler.status()}
 
@@ -244,7 +271,8 @@ def enter_vault():
                            accountSummary = account_summary,
                            instrument = arthur.config.instrument,
                            refreshRate = arthur.config.horizon,
-                           zone = arthur.config.zone)
+                           zone = arthur.config.zone,
+                           manualSwitch = manual)
 
 def latest_signal_records(instrument):
     """Newest signal file for the instrument as a list of records, or None."""
