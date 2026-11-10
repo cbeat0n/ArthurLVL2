@@ -1,0 +1,68 @@
+### test_atomic.py checks that write_csv_atomic never leaves a half written or stray file behind.
+
+import glob
+import os
+from unittest import mock
+
+import pandas as pd
+import pytest
+
+from utils.atomic import write_csv_atomic
+
+
+def test_writes_a_new_file(tmp_path):
+    path = str(tmp_path / "new.csv")
+    df = pd.DataFrame({"x": [1, 2, 3], "y": ["a", "b", "c"]})
+
+    assert write_csv_atomic(df, path) == path
+
+    pd.testing.assert_frame_equal(pd.read_csv(path), df)
+
+
+def test_overwrite_leaves_only_the_new_contents(tmp_path):
+    path = str(tmp_path / "a.csv")
+    write_csv_atomic(pd.DataFrame({"x": [1, 2]}), path)
+    write_csv_atomic(pd.DataFrame({"x": [3]}), path)
+
+    assert pd.read_csv(path)["x"].tolist() == [3]
+    assert os.listdir(tmp_path) == ["a.csv"]  # no temp file left
+
+
+def test_failure_during_swap_keeps_old_file_and_cleans_up(tmp_path):
+    path = str(tmp_path / "a.csv")
+    write_csv_atomic(pd.DataFrame({"x": [1, 2]}), path)
+
+    with mock.patch("utils.atomic.os.replace", side_effect=OSError("boom")):
+        with pytest.raises(OSError, match="boom"):
+            write_csv_atomic(pd.DataFrame({"x": [9]}), path)
+
+    assert pd.read_csv(path)["x"].tolist() == [1, 2]  # old file untouched
+    assert os.listdir(tmp_path) == ["a.csv"]  # temp file removed
+
+
+def test_failure_while_writing_never_creates_the_target(tmp_path):
+    path = str(tmp_path / "never.csv")
+    df = pd.DataFrame({"x": [1]})
+
+    with mock.patch.object(pd.DataFrame, "to_csv", side_effect=RuntimeError("disk full")):
+        with pytest.raises(RuntimeError, match="disk full"):
+            write_csv_atomic(df, path)
+
+    assert os.listdir(tmp_path) == []  # no target and no temp file
+
+
+def test_temp_file_is_invisible_to_a_csv_search(tmp_path):
+    path = str(tmp_path / "signal_data_USD_JPY_t.csv")
+    seen = []
+
+    real_replace = os.replace
+
+    def peek(src, dst):
+        seen.extend(glob.glob(str(tmp_path / "*.csv")))  # mid-write: the swap has not happened yet
+        real_replace(src, dst)
+
+    with mock.patch("utils.atomic.os.replace", side_effect=peek):
+        write_csv_atomic(pd.DataFrame({"x": [1]}), path)
+
+    assert seen == []  # the Arthur.py *.csv search can't pick up a half written file
+    assert glob.glob(str(tmp_path / "*.csv")) == [path]
