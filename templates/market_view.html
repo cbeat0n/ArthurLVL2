@@ -48,6 +48,7 @@
 
     // Poll often enough to pick up a new bar soon after the vault writes it.
     const POLL_MS = Math.min(getRefreshMs(HORIZON), 5000);
+    const PLOT_HEIGHT = 420;   // the boxes have no CSS height, so responsive charts need one or they collapse
     const MAX_BACKOFF_MS = 30000;
     const FETCH_TIMEOUT_MS = 10000;
     // The newest bar is stale when it is older than three horizons (and at least 3 minutes).
@@ -92,10 +93,10 @@
 
       const line = (id, x, y, name, color, title, ytitle) => Plotly.react(id,
         [{ x: x, y: y, mode: "lines", name: name, line: { color: color } }],
-        { title: title, xaxis: { title: "Time" }, yaxis: { title: ytitle } }, { responsive: true });
+        { title: title, height: PLOT_HEIGHT, xaxis: { title: "Time" }, yaxis: { title: ytitle } }, { responsive: true });
       const dots = (id, x, y, name, color, title, xt, yt) => Plotly.react(id,
         [{ x: x, y: y, mode: "markers", name: name, marker: { color: color, size: 6 } }],
-        { title: title, xaxis: { title: xt }, yaxis: { title: yt } }, { responsive: true });
+        { title: title, height: PLOT_HEIGHT, xaxis: { title: xt }, yaxis: { title: yt } }, { responsive: true });
 
       line("plot-price", t, col("value"), "Price", "blue", "Price vs Time", "Price");
       line("plot-B", t, col("B"), "Buying Pressure", "green", "Buying Pressure vs Time", "B");
