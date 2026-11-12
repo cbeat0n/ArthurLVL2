@@ -84,3 +84,16 @@ def test_granularity_without_a_chunk_size_is_refused():
 def test_unsupported_instrument_is_refused():
     with pytest.raises(ValueError):
         ph.pull_history("GBP_JPY" , "M1" , "2026-01-01" , "2026-01-02" , http = FakeHttp([]))
+
+
+def test_command_line_defaults_and_overrides():
+    d = ph.parse_args([])
+    assert (d.instrument , d.granularity , d.start , d.end) == (ph.INSTRUMENT , ph.GRANULARITY , ph.START_DATE , ph.END_DATE)
+    a = ph.parse_args(["--granularity" , "M1" , "--start" , "2025-01-01" , "--end" , "2025-12-31"])
+    assert (a.granularity , a.start , a.end) == ("M1" , "2025-01-01" , "2025-12-31")
+
+
+def test_command_line_refuses_bad_input():
+    for bad in (["--start" , "01/01/2025"] , ["--granularity" , "H1"] , ["--instrument" , "GBP_JPY"]):
+        with pytest.raises(SystemExit):
+            ph.parse_args(bad)

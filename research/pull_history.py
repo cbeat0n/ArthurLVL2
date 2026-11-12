@@ -3,7 +3,7 @@
 ### where it left off and a finished month is never fetched twice.
 
 ## External Dependencies
-import os , sys , time # Libraries for operating system communication and time
+import argparse , os , sys , time # Libraries for operating system communication, arguments and time
 from datetime import datetime , timedelta , timezone # Library for time objects
 from dotenv import load_dotenv # Env hides the API key
 import pandas as pd # Library for data manipulation
@@ -201,5 +201,30 @@ def check_history(paths : list):
 
 
 ## Adds modularity
+def parse_args(argv : list = None):
+    """
+    parse_args reads the command line, so a different instrument, candle size or date range can be
+    pulled without editing this file. Anything left out keeps the constants at the top.
+    It returns the parsed arguments.
+
+    Inputs:
+    argv : list - the arguments, defaults to the real command line
+    """
+
+    ap = argparse.ArgumentParser(description = "Pull historical candles from OANDA's demo API, one file per month.")
+    ap.add_argument("--instrument" , default = INSTRUMENT , choices = SUPPORTED)
+    ap.add_argument("--granularity" , default = GRANULARITY , choices = sorted(CHUNK_HOURS))
+    ap.add_argument("--start" , default = START_DATE , help = "first day, YYYY-MM-DD")
+    ap.add_argument("--end" , default = END_DATE , help = "last day, YYYY-MM-DD, inclusive")
+    args = ap.parse_args(argv)
+    for name in ("start" , "end"):
+        try:
+            datetime.strptime(getattr(args , name) , "%Y-%m-%d")
+        except ValueError:
+            ap.error(f"--{name} must be YYYY-MM-DD")
+    return args
+
+
 if __name__ == "__main__":
-    check_history(pull_history())
+    a = parse_args()
+    check_history(pull_history(a.instrument , a.granularity , a.start , a.end))

@@ -86,7 +86,8 @@ def _signal_at(i : int):
     return float(row["Theta"]) , float(row["Mu"]) , float(row["Margin"])
 
 
-def causal_signals(bars : pd.DataFrame , zone : int , max_signals : int = MAX_SIGNALS , workers : int = 2):
+def causal_signals(bars : pd.DataFrame , zone : int , max_signals : int = MAX_SIGNALS , workers : int = 2 ,
+                   at : np.ndarray = None):
     """
     causal_signals replays the live engine at every k-th bar: the signal is computed on the trailing
     8 * zone bars and only the last row is kept, so nothing at bar t depends on a later bar.
@@ -98,6 +99,8 @@ def causal_signals(bars : pd.DataFrame , zone : int , max_signals : int = MAX_SI
     zone : int - the zone
     max_signals : int - cap on signals computed
     workers : int - processes to use
+    at : np.ndarray - bar indices to compute instead, for lining signals up across horizons.
+        Indices before the first full window are dropped.
     """
 
     first = WINDOW_PER_ZONE * zone - 1
@@ -105,8 +108,11 @@ def causal_signals(bars : pd.DataFrame , zone : int , max_signals : int = MAX_SI
     if last < first:
         raise ValueError("Not enough bars for one window.")
 
-    stride = max(1 , math.ceil((last - first + 1) / max_signals))
-    idx = list(range(first , last + 1 , stride))
+    if at is not None:
+        idx = sorted(int(i) for i in at if first <= int(i) <= last)
+    else:
+        stride = max(1 , math.ceil((last - first + 1) / max_signals))
+        idx = list(range(first , last + 1 , stride))
 
     if workers > 1:
         with Pool(workers , initializer = _init_worker , initargs = (bars , zone)) as pool:
@@ -203,6 +209,38 @@ def score(df : pd.DataFrame , actions : np.ndarray , long_col : str = "long_pips
             "net" : float(gross.mean() - spread) , "net_total" : float((gross - spread).sum())}
 
 
+def score_sides(df : pd.DataFrame , actions : np.ndarray , long_col : str = "long_pips" ,
+                short_col : str = "short_pips" , spread : float = SPREAD_PIPS):
+    """
+    score_sides splits a rule's trades into BUY trades and SELL trades and measures what each side adds beyond
+    the trend. For BUY, lift is the mean long result on the bars the rule bought minus the mean long result over
+    every bar in the same rows (always buying), and the same for SELL with the short result. A rule that only
+    works because the market rose has a high net on BUY and about zero lift.
+    It returns a dictionary with buy, sell (each: trades, hit, gross, net, lift) and two_sided, which is
+    True only if both sides traded and both lifts are above zero.
+
+    Inputs:
+    df : pd.DataFrame - rows with the outcome columns
+    actions : np.ndarray - 0 BUY , 1 SELL , 2 HOLD per row
+    long_col , short_col , spread : see score
+    """
+
+    actions = np.asarray(actions)
+    out = {}
+    for name , code , col in (("buy" , 0 , long_col) , ("sell" , 1 , short_col)):
+        vals = df[col].to_numpy()
+        picked = vals[(actions == code) & ~np.isnan(vals)]
+        everything = vals[~np.isnan(vals)]
+        if len(picked) == 0:
+            out[name] = {"trades" : 0 , "hit" : np.nan , "gross" : np.nan , "net" : np.nan , "lift" : np.nan}
+            continue
+        out[name] = {"trades" : int(len(picked)) , "hit" : float((picked > 0).mean()) , "gross" : float(picked.mean()) ,
+                     "net" : float(picked.mean() - spread) , "lift" : float(picked.mean() - everything.mean())}
+    out["two_sided"] = bool(out["buy"]["trades"] > 0 and out["sell"]["trades"] > 0 and
+                            out["buy"]["lift"] > 0 and out["sell"]["lift"] > 0)
+    return out
+
+
 def baselines(df : pd.DataFrame , long_col : str = "long_pips" , short_col : str = "short_pips" ,
               spread : float = SPREAD_PIPS):
     """
@@ -283,6 +321,9 @@ def walk_forward(df : pd.DataFrame , shape : tuple = (2 , 3) , train_months : in
     pooled_df = pd.concat([t for t , _ in tests] , ignore_index = True)
     pooled_actions = np.concatenate([a for _ , a in tests])
     pooled = {"regions" : score(pooled_df , pooled_actions , long_col , short_col , spread)}
+    sides = score_sides(pooled_df , pooled_actions , long_col , short_col , spread)
+    pooled["regions_buy"] , pooled["regions_sell"] = sides["buy"] , sides["sell"]
+    pooled["two_sided"] = {"value" : float(sides["two_sided"])}
     pooled.update(baselines(pooled_df , long_col , short_col , spread))
     return pd.DataFrame(rows) , pooled
 

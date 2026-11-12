@@ -123,3 +123,36 @@ def test_trial_log_appends(tmp_path):
     lab.log_trial({"horizon_min" : 45 , "zone" : 5} , {"regions" : {"trades" : 12 , "net" : 0.5}} , path)
     log = pd.read_csv(path)
     assert len(log) == 2 and log["set_horizon_min"].tolist() == [30 , 45] and log["regions_net"].iloc[0] == pytest.approx(-1.2346)
+
+
+def test_score_sides_separates_trend_from_skill():
+    # 10 bars that all rose 2 pips: buying every one of them has net 2 - spread but zero lift over always-buy.
+    df = pd.DataFrame({"long_pips" : [2.0] * 10 , "short_pips" : [-2.0] * 10})
+    res = lab.score_sides(df , np.zeros(10 , dtype = int) , spread = 1.0)
+    assert res["buy"]["net"] == pytest.approx(1.0) and res["buy"]["lift"] == pytest.approx(0.0)
+    assert res["sell"]["trades"] == 0 and res["two_sided"] is False
+
+
+def test_score_sides_rewards_picking_the_right_bars_on_both_sides():
+    long = np.array([5.0 , 5.0 , -5.0 , -5.0])
+    df = pd.DataFrame({"long_pips" : long , "short_pips" : -long})
+    res = lab.score_sides(df , np.array([0 , 0 , 1 , 1]) , spread = 1.0) # buy the winners, sell the losers
+    assert res["buy"]["lift"] == pytest.approx(5.0) and res["sell"]["lift"] == pytest.approx(5.0)
+    assert res["buy"]["net"] == pytest.approx(4.0) and res["two_sided"] is True
+
+
+def test_walk_forward_reports_each_side_and_the_two_sided_flag():
+    monthly , pooled = lab.walk_forward(monthly_frame() , shape = (1 , 3) , train_months = 4 , gap_months = 1 ,
+                                        min_train_months = 3 , spread = 0.0 , min_n = 10)
+    assert {"regions_buy" , "regions_sell" , "two_sided"} <= set(pooled)
+
+
+def test_causal_signals_at_chosen_bars_uses_only_those_bars():
+    rng = np.random.default_rng(0)
+    n = 60
+    close = 150 + np.cumsum(rng.normal(0 , 0.02 , n))
+    bars = pd.DataFrame({"timestamp" : pd.date_range("2026-01-05" , periods = n , freq = "10min" , tz = "UTC") ,
+                         "open" : close , "high" : close + .01 , "low" : close - .01 , "close" : close , "volume" : rng.integers(5 , 50 , n)})
+    out = lab.causal_signals(bars , 3 , at = np.array([5 , 30 , 45 , 59 , 500]) , workers = 1) # window is 24 bars, so 5 is too early
+    assert out["i"].tolist() == [30 , 45 , 59]
+    assert out["timestamp"].tolist() == list(bars["timestamp"].iloc[[30 , 45 , 59]])

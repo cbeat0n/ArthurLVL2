@@ -1,0 +1,193 @@
+diff --git a/research/pull_history.py b/research/pull_history.py
+index 2b493e0..d5aed44 100644
+--- a/research/pull_history.py
++++ b/research/pull_history.py
+@@ -3,7 +3,7 @@
+ ### where it left off and a finished month is never fetched twice.
+ 
+ ## External Dependencies
+-import os , sys , time # Libraries for operating system communication and time
++import argparse , os , sys , time # Libraries for operating system communication, arguments and time
+ from datetime import datetime , timedelta , timezone # Library for time objects
+ from dotenv import load_dotenv # Env hides the API key
+ import pandas as pd # Library for data manipulation
+@@ -201,5 +201,30 @@ def check_history(paths : list):
+ 
+ 
+ ## Adds modularity
++def parse_args(argv : list = None):
++    """
++    parse_args reads the command line, so a different instrument, candle size or date range can be
++    pulled without editing this file. Anything left out keeps the constants at the top.
++    It returns the parsed arguments.
++
++    Inputs:
++    argv : list - the arguments, defaults to the real command line
++    """
++
++    ap = argparse.ArgumentParser(description = "Pull historical candles from OANDA's demo API, one file per month.")
++    ap.add_argument("--instrument" , default = INSTRUMENT , choices = SUPPORTED)
++    ap.add_argument("--granularity" , default = GRANULARITY , choices = sorted(CHUNK_HOURS))
++    ap.add_argument("--start" , default = START_DATE , help = "first day, YYYY-MM-DD")
++    ap.add_argument("--end" , default = END_DATE , help = "last day, YYYY-MM-DD, inclusive")
++    args = ap.parse_args(argv)
++    for name in ("start" , "end"):
++        try:
++            datetime.strptime(getattr(args , name) , "%Y-%m-%d")
++        except ValueError:
++            ap.error(f"--{name} must be YYYY-MM-DD")
++    return args
++
++
+ if __name__ == "__main__":
+-    check_history(pull_history())
++    a = parse_args()
++    check_history(pull_history(a.instrument , a.granularity , a.start , a.end))
+diff --git a/research/signal_lab.py b/research/signal_lab.py
+index cca0adc..6657639 100644
+--- a/research/signal_lab.py
++++ b/research/signal_lab.py
+@@ -86,7 +86,8 @@ def _signal_at(i : int):
+     return float(row["Theta"]) , float(row["Mu"]) , float(row["Margin"])
+ 
+ 
+-def causal_signals(bars : pd.DataFrame , zone : int , max_signals : int = MAX_SIGNALS , workers : int = 2):
++def causal_signals(bars : pd.DataFrame , zone : int , max_signals : int = MAX_SIGNALS , workers : int = 2 ,
++                   at : np.ndarray = None):
+     """
+     causal_signals replays the live engine at every k-th bar: the signal is computed on the trailing
+     8 * zone bars and only the last row is kept, so nothing at bar t depends on a later bar.
+@@ -98,6 +99,8 @@ def causal_signals(bars : pd.DataFrame , zone : int , max_signals : int = MAX_SI
+     zone : int - the zone
+     max_signals : int - cap on signals computed
+     workers : int - processes to use
++    at : np.ndarray - bar indices to compute instead, for lining signals up across horizons.
++        Indices before the first full window are dropped.
+     """
+ 
+     first = WINDOW_PER_ZONE * zone - 1
+@@ -105,8 +108,11 @@ def causal_signals(bars : pd.DataFrame , zone : int , max_signals : int = MAX_SI
+     if last < first:
+         raise ValueError("Not enough bars for one window.")
+ 
+-    stride = max(1 , math.ceil((last - first + 1) / max_signals))
+-    idx = list(range(first , last + 1 , stride))
++    if at is not None:
++        idx = sorted(int(i) for i in at if first <= int(i) <= last)
++    else:
++        stride = max(1 , math.ceil((last - first + 1) / max_signals))
++        idx = list(range(first , last + 1 , stride))
+ 
+     if workers > 1:
+         with Pool(workers , initializer = _init_worker , initargs = (bars , zone)) as pool:
+@@ -203,6 +209,38 @@ def score(df : pd.DataFrame , actions : np.ndarray , long_col : str = "long_pips
+             "net" : float(gross.mean() - spread) , "net_total" : float((gross - spread).sum())}
+ 
+ 
++def score_sides(df : pd.DataFrame , actions : np.ndarray , long_col : str = "long_pips" ,
++                short_col : str = "short_pips" , spread : float = SPREAD_PIPS):
++    """
++    score_sides splits a rule's trades into BUY trades and SELL trades and measures what each side adds beyond
++    the trend. For BUY, lift is the mean long result on the bars the rule bought minus the mean long result over
++    every bar in the same rows (always buying), and the same for SELL with the short result. A rule that only
++    works because the market rose has a high net on BUY and about zero lift.
++    It returns a dictionary with buy, sell (each: trades, hit, gross, net, lift) and two_sided, which is
++    True only if both sides traded and both lifts are above zero.
++
++    Inputs:
++    df : pd.DataFrame - rows with the outcome columns
++    actions : np.ndarray - 0 BUY , 1 SELL , 2 HOLD per row
++    long_col , short_col , spread : see score
++    """
++
++    actions = np.asarray(actions)
++    out = {}
++    for name , code , col in (("buy" , 0 , long_col) , ("sell" , 1 , short_col)):
++        vals = df[col].to_numpy()
++        picked = vals[(actions == code) & ~np.isnan(vals)]
++        everything = vals[~np.isnan(vals)]
++        if len(picked) == 0:
++            out[name] = {"trades" : 0 , "hit" : np.nan , "gross" : np.nan , "net" : np.nan , "lift" : np.nan}
++            continue
++        out[name] = {"trades" : int(len(picked)) , "hit" : float((picked > 0).mean()) , "gross" : float(picked.mean()) ,
++                     "net" : float(picked.mean() - spread) , "lift" : float(picked.mean() - everything.mean())}
++    out["two_sided"] = bool(out["buy"]["trades"] > 0 and out["sell"]["trades"] > 0 and
++                            out["buy"]["lift"] > 0 and out["sell"]["lift"] > 0)
++    return out
++
++
+ def baselines(df : pd.DataFrame , long_col : str = "long_pips" , short_col : str = "short_pips" ,
+               spread : float = SPREAD_PIPS):
+     """
+@@ -283,6 +321,9 @@ def walk_forward(df : pd.DataFrame , shape : tuple = (2 , 3) , train_months : in
+     pooled_df = pd.concat([t for t , _ in tests] , ignore_index = True)
+     pooled_actions = np.concatenate([a for _ , a in tests])
+     pooled = {"regions" : score(pooled_df , pooled_actions , long_col , short_col , spread)}
++    sides = score_sides(pooled_df , pooled_actions , long_col , short_col , spread)
++    pooled["regions_buy"] , pooled["regions_sell"] = sides["buy"] , sides["sell"]
++    pooled["two_sided"] = {"value" : float(sides["two_sided"])}
+     pooled.update(baselines(pooled_df , long_col , short_col , spread))
+     return pd.DataFrame(rows) , pooled
+ 
+diff --git a/tests/test_pull_history.py b/tests/test_pull_history.py
+index 1e45bf0..4168e1a 100644
+--- a/tests/test_pull_history.py
++++ b/tests/test_pull_history.py
+@@ -84,3 +84,16 @@ def test_granularity_without_a_chunk_size_is_refused():
+ def test_unsupported_instrument_is_refused():
+     with pytest.raises(ValueError):
+         ph.pull_history("GBP_JPY" , "M1" , "2026-01-01" , "2026-01-02" , http = FakeHttp([]))
++
++
++def test_command_line_defaults_and_overrides():
++    d = ph.parse_args([])
++    assert (d.instrument , d.granularity , d.start , d.end) == (ph.INSTRUMENT , ph.GRANULARITY , ph.START_DATE , ph.END_DATE)
++    a = ph.parse_args(["--granularity" , "M1" , "--start" , "2025-01-01" , "--end" , "2025-12-31"])
++    assert (a.granularity , a.start , a.end) == ("M1" , "2025-01-01" , "2025-12-31")
++
++
++def test_command_line_refuses_bad_input():
++    for bad in (["--start" , "01/01/2025"] , ["--granularity" , "H1"] , ["--instrument" , "GBP_JPY"]):
++        with pytest.raises(SystemExit):
++            ph.parse_args(bad)
+diff --git a/tests/test_signal_lab.py b/tests/test_signal_lab.py
+index 72ecc26..a2d3abd 100644
+--- a/tests/test_signal_lab.py
++++ b/tests/test_signal_lab.py
+@@ -123,3 +123,36 @@ def test_trial_log_appends(tmp_path):
+     lab.log_trial({"horizon_min" : 45 , "zone" : 5} , {"regions" : {"trades" : 12 , "net" : 0.5}} , path)
+     log = pd.read_csv(path)
+     assert len(log) == 2 and log["set_horizon_min"].tolist() == [30 , 45] and log["regions_net"].iloc[0] == pytest.approx(-1.2346)
++
++
++def test_score_sides_separates_trend_from_skill():
++    # 10 bars that all rose 2 pips: buying every one of them has net 2 - spread but zero lift over always-buy.
++    df = pd.DataFrame({"long_pips" : [2.0] * 10 , "short_pips" : [-2.0] * 10})
++    res = lab.score_sides(df , np.zeros(10 , dtype = int) , spread = 1.0)
++    assert res["buy"]["net"] == pytest.approx(1.0) and res["buy"]["lift"] == pytest.approx(0.0)
++    assert res["sell"]["trades"] == 0 and res["two_sided"] is False
++
++
++def test_score_sides_rewards_picking_the_right_bars_on_both_sides():
++    long = np.array([5.0 , 5.0 , -5.0 , -5.0])
++    df = pd.DataFrame({"long_pips" : long , "short_pips" : -long})
++    res = lab.score_sides(df , np.array([0 , 0 , 1 , 1]) , spread = 1.0) # buy the winners, sell the losers
++    assert res["buy"]["lift"] == pytest.approx(5.0) and res["sell"]["lift"] == pytest.approx(5.0)
++    assert res["buy"]["net"] == pytest.approx(4.0) and res["two_sided"] is True
++
++
++def test_walk_forward_reports_each_side_and_the_two_sided_flag():
++    monthly , pooled = lab.walk_forward(monthly_frame() , shape = (1 , 3) , train_months = 4 , gap_months = 1 ,
++                                        min_train_months = 3 , spread = 0.0 , min_n = 10)
++    assert {"regions_buy" , "regions_sell" , "two_sided"} <= set(pooled)
++
++
++def test_causal_signals_at_chosen_bars_uses_only_those_bars():
++    rng = np.random.default_rng(0)
++    n = 60
++    close = 150 + np.cumsum(rng.normal(0 , 0.02 , n))
++    bars = pd.DataFrame({"timestamp" : pd.date_range("2026-01-05" , periods = n , freq = "10min" , tz = "UTC") ,
++                         "open" : close , "high" : close + .01 , "low" : close - .01 , "close" : close , "volume" : rng.integers(5 , 50 , n)})
++    out = lab.causal_signals(bars , 3 , at = np.array([5 , 30 , 45 , 59 , 500]) , workers = 1) # window is 24 bars, so 5 is too early
++    assert out["i"].tolist() == [30 , 45 , 59]
++    assert out["timestamp"].tolist() == list(bars["timestamp"].iloc[[30 , 45 , 59]])
