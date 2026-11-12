@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 
+from utils.regions import region_action
+
 
 ## PARAMETERS
 ## TUNE FIRST FOR ABSOLUTE OPTIMIZATION
@@ -48,6 +50,7 @@ MIN_PERIODS = 10 # rolling z min periods  , not tested yet , was max(10 , Z_WIND
 RFIGS = 4 # figures used for rounding
 MU_FLOOR = 10**-RFIGS # smallest nonzero Margin diff, floor for the Mu denominator
 SIGNAL_COLS = ["X","Y","B","S","Margin","Intensity","Theta","Mu"] # must all exist before deciding
+DECISION_MODE = "hold" # "hold" never trades. "regions" decides from the learned Theta x Mu map.
 
 def decisionrule(sample : pd.Series):
     """
@@ -64,16 +67,17 @@ def decisionrule(sample : pd.Series):
     if sample[SIGNAL_COLS].isna().any():
         return 2
 
-    if True:
-        return 2 ## Naive Mode (B/S/H) for demonstration purposes, then parameterize DR.
-    
     ## 0 is BUY
     ## 1 is SELL
     ## 2 is HOLD
 
-    ## Parameterize UxV ( in this case Theta x Mu ) with polar, or something else.
-    ## Make a nonlinear decision rule here.
-        
+    ## "regions" decides from the learned Theta x Mu map in models/model_params.json.
+    ## Any row the map can't place, or a missing model file, is HOLD.
+    if DECISION_MODE == "regions":
+        return region_action(sample["Theta"] , sample["Mu"])
+
+    return 2 ## Naive Mode (B/S/H) for demonstration purposes, then parameterize DR.
+
 
 def convert_timestamp(ts_str: str):
     """

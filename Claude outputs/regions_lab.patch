@@ -1,0 +1,1042 @@
+diff --git a/research/regions.py b/research/regions.py
+new file mode 100644
+index 0000000..de926c0
+--- /dev/null
++++ b/research/regions.py
+@@ -0,0 +1,154 @@
++### regions.py learns the Theta x Mu region map that utils/regions.py reads at run time.
++### Each region gets BUY , SELL or HOLD from how the outcomes in that region turned out on
++### the training months, after the spread. Thin regions are pulled toward zero so a lucky corner
++### with a few dozen bars can't win. Research only: it places no orders.
++
++## External Dependencies
++import json , os , sys # Libraries for the model file and imports
++import numpy as np # Library for numerical work
++import pandas as pd # Library for data manipulation
++
++sys.path.insert(0 , os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # repo root, so utils imports work
++
++## Internal Dependencies
++from utils.regions import BUY , SELL , HOLD , SENTINEL , region_id
++
++SPREAD_PIPS = 1.6 # median USD_JPY spread measured Jan-Jul 2026, paid once per round trip
++MIN_N = 150 # fewest training bars a region needs before it may trade
++SHRINK_K = 100 # a region's mean outcome is scaled by n / (n + SHRINK_K)
++MARGIN_PIPS = 0.0 # expected net pips a region must clear to trade
++
++
++def usable(df : pd.DataFrame):
++    """
++    usable keeps the rows with a real Theta and Mu: not missing and not the sentinel.
++    It returns a DataFrame.
++
++    Inputs:
++    df : pd.DataFrame - rows with Theta and Mu columns
++    """
++
++    ok = df["Theta"].notna() & df["Mu"].notna()
++    ok &= (df["Theta"] - SENTINEL).abs() > 1e-12
++    ok &= (df["Mu"] - SENTINEL).abs() > 1e-12
++    return df[ok]
++
++
++def quantile_cuts(values : pd.Series , bins : int):
++    """
++    quantile_cuts returns the cut points that split values into equal-count bins.
++    It returns a sorted list of bins - 1 floats, with duplicates removed.
++
++    Inputs:
++    values : pd.Series - training values
++    bins : int - how many bins
++    """
++
++    if bins <= 1:
++        return []
++    qs = np.linspace(0 , 1 , bins + 1)[1:-1]
++    return sorted({float(c) for c in values.quantile(qs)})
++
++
++def learn_regions(train : pd.DataFrame , shape : tuple = (2 , 3) , spread : float = SPREAD_PIPS ,
++                  min_n : int = MIN_N , shrink_k : float = SHRINK_K , margin : float = MARGIN_PIPS):
++    """
++    learn_regions cuts the Theta x Mu plane into shape[0] x shape[1] equal-count regions and labels each
++    one. For a region with n bars, long outcome mean L and short outcome mean S in pips, the shrunk
++    means are L * n / (n + shrink_k) and S * n / (n + shrink_k). The region is BUY if its shrunk
++    L - spread clears margin and beats SELL, SELL if its shrunk S - spread does, and HOLD otherwise
++    or if it has fewer than min_n bars.
++    It returns a model dictionary that utils/regions.py can load.
++
++    Inputs:
++    train : pd.DataFrame - training rows with Theta , Mu , long_pips and short_pips
++    shape : tuple - (Theta bins , Mu bins), 4 to 8 regions is the plan
++    spread : float - round-trip cost in pips
++    min_n : int - fewest bars a region needs to trade
++    shrink_k : float - shrinkage strength
++    margin : float - expected net pips a region must clear
++    """
++
++    df = usable(train).dropna(subset = ["long_pips" , "short_pips"])
++    if len(df) == 0:
++        raise ValueError("No usable training rows.")
++
++    theta_cuts = quantile_cuts(df["Theta"] , shape[0])
++    mu_cuts = quantile_cuts(df["Mu"] , shape[1])
++    stub = {"theta_cuts" : theta_cuts , "mu_cuts" : mu_cuts}
++    ids = np.array([region_id(t , m , stub) for t , m in zip(df["Theta"] , df["Mu"])])
++
++    n_regions = (len(theta_cuts) + 1) * (len(mu_cuts) + 1)
++    actions , cells = [] , []
++    for rid in range(n_regions):
++        sel = ids == rid
++        n = int(sel.sum())
++        if n == 0:
++            actions.append(HOLD)
++            cells.append({"region" : rid , "n" : 0 , "action" : HOLD})
++            continue
++
++        shrink = n / (n + shrink_k)
++        long_mean = float(df["long_pips"][sel].mean())
++        short_mean = float(df["short_pips"][sel].mean())
++        exp_buy = long_mean * shrink - spread
++        exp_sell = short_mean * shrink - spread
++
++        action = HOLD
++        if n >= min_n and max(exp_buy , exp_sell) > margin:
++            action = BUY if exp_buy >= exp_sell else SELL
++
++        actions.append(action)
++        cells.append({"region" : rid , "n" : n , "long_mean_pips" : round(long_mean , 4) ,
++                      "short_mean_pips" : round(short_mean , 4) , "exp_buy_net" : round(exp_buy , 4) ,
++                      "exp_sell_net" : round(exp_sell , 4) , "action" : action})
++
++    return {"version" : 1 , "theta_cuts" : theta_cuts , "mu_cuts" : mu_cuts , "actions" : actions ,
++            "cells" : cells , "settings" : {"shape" : list(shape) , "spread" : spread , "min_n" : min_n ,
++                                           "shrink_k" : shrink_k , "margin" : margin} ,
++            "trained_rows" : int(len(df))}
++
++
++def apply_regions(df : pd.DataFrame , model : dict):
++    """
++    apply_regions gives the action for every row, using the same lookup as live.
++    It returns an integer array of 0 BUY , 1 SELL , 2 HOLD. Rows without a usable Theta and Mu are HOLD.
++
++    Inputs:
++    df : pd.DataFrame - rows with Theta and Mu
++    model : dict - a learned model
++    """
++
++    out = np.full(len(df) , HOLD , dtype = int)
++    for i , (t , m) in enumerate(zip(df["Theta"].to_numpy() , df["Mu"].to_numpy())):
++        rid = region_id(t , m , model)
++        if rid is not None:
++            out[i] = model["actions"][rid]
++    return out
++
++
++def save_model(model : dict , path : str , trained_on : dict = None):
++    """
++    save_model writes a model to a JSON file, whole or not at all, with what it was trained on
++    (data range, horizon, zone) so a saved model can always be traced.
++    It returns the path.
++
++    Inputs:
++    model : dict - a learned model
++    path : str - where to write it
++    trained_on : dict - description of the training data and settings
++    """
++
++    out = dict(model)
++    out["trained_on"] = trained_on or {}
++    os.makedirs(os.path.dirname(path) , exist_ok = True)
++    tmp = f"{path}.{os.getpid()}.tmp"
++    try:
++        with open(tmp , "w" , encoding = "utf-8") as f:
++            json.dump(out , f , indent = 2)
++        os.replace(tmp , path)
++    except BaseException:
++        if os.path.exists(tmp):
++            os.remove(tmp)
++        raise
++    return path
+diff --git a/research/signal_lab.py b/research/signal_lab.py
+new file mode 100644
+index 0000000..cca0adc
+--- /dev/null
++++ b/research/signal_lab.py
+@@ -0,0 +1,444 @@
++### signal_lab.py is the research harness for Arthur's signal. It builds horizon bars from the pulled
++### history, replays the signal causally, labels what happened next, learns Theta x Mu regions on past
++### months, scores them on a later month, and compares them with simple baselines after the spread.
++### Every run is appended to research/trials.csv so the number of tries behind a result is on record.
++### Research only: it places no orders. Months on or after HOLDOUT_START are refused unless asked for.
++
++## External Dependencies
++import argparse , glob , math , os , sys , time # Libraries for files, arguments and timing
++from datetime import datetime , timezone # Library for time objects
++from multiprocessing import Pool # Library for using every core
++import numpy as np # Library for numerical work
++import pandas as pd # Library for data manipulation
++
++sys.path.insert(0 , os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # repo root, so utils imports work
++
++## Internal Dependencies
++from research.regions import learn_regions , apply_regions , usable , SPREAD_PIPS
++from utils.instruments import pip_size
++from utils.transform_signal import transform_to_signal
++
++ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
++HISTORY_ROOT = os.path.join(ROOT , "data" , "history")
++TRIALS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)) , "trials.csv")
++HOLDOUT_START = pd.Timestamp("2026-08-01" , tz = "UTC") # Aug-Oct 2026 is sealed for one final look
++WINDOW_PER_ZONE = 8 # live computes the signal on its last 8 * zone horizon bars
++MAX_SIGNALS = 10000 # cap on signals per horizon, bars are skipped evenly to stay under it
++AGG = {"open" : "first" , "high" : "max" , "low" : "min" , "close" : "last" , "volume" : "sum"}
++
++
++def load_history(instrument : str = "USD_JPY" , granularity : str = "S5" , root : str = None ,
++                 allow_holdout : bool = False):
++    """
++    load_history reads the monthly candle files written by pull_history.py and returns mid prices.
++    Candles on or after HOLDOUT_START are dropped unless allow_holdout is True.
++    It returns a DataFrame indexed by UTC timestamp with open, high, low, close, volume.
++
++    Inputs:
++    instrument : str - the instrument
++    granularity : str - candle size of the files, e.g. S5 or M1
++    root : str - folder holding <instrument>_<granularity>/, defaults to data/history
++    allow_holdout : bool - True lets sealed months through, for the one final look only
++    """
++
++    folder = os.path.join(root or HISTORY_ROOT , f"{instrument}_{granularity}")
++    files = sorted(glob.glob(os.path.join(folder , "*.csv.gz")))
++    if not files:
++        raise FileNotFoundError(f"No history files in {folder}. Run research/pull_history.py first.")
++
++    cols = ["timestamp" , "volume" , "mid_o" , "mid_h" , "mid_l" , "mid_c"]
++    df = pd.concat([pd.read_csv(f , usecols = cols) for f in files] , ignore_index = True)
++    df["timestamp"] = pd.to_datetime(df["timestamp"] , utc = True)
++    df = df.sort_values("timestamp").set_index("timestamp")
++    if not allow_holdout:
++        df = df[df.index < HOLDOUT_START]
++
++    return df.rename(columns = {"mid_o" : "open" , "mid_h" : "high" , "mid_l" : "low" , "mid_c" : "close"})
++
++
++def horizon_bars(candles : pd.DataFrame , seconds : int):
++    """
++    horizon_bars builds horizon bars the way clean_tabular does: label on the right edge, each bar
++    closed on the left, so no bar contains a candle from its own future.
++    It returns a DataFrame with timestamp, open, high, low, close, volume.
++
++    Inputs:
++    candles : pd.DataFrame - output of load_history
++    seconds : int - horizon length in seconds, e.g. 1800 for M30Q0
++    """
++
++    return (candles.resample(pd.Timedelta(seconds = seconds) , label = "right" , closed = "left")
++            .agg(AGG).dropna(how = "any").reset_index())
++
++
++_BARS , _ZONE = None , None
++
++
++def _init_worker(bars : pd.DataFrame , zone : int):
++    ## Windows starts workers fresh instead of copying this process, so they are handed the bars here.
++    global _BARS , _ZONE
++    _BARS , _ZONE = bars , zone
++
++
++def _signal_at(i : int):
++    window = _BARS.iloc[i - WINDOW_PER_ZONE * _ZONE + 1 : i + 1].reset_index(drop = True)
++    row = transform_to_signal(window , _ZONE)["signal"].iloc[-1]
++    return float(row["Theta"]) , float(row["Mu"]) , float(row["Margin"])
++
++
++def causal_signals(bars : pd.DataFrame , zone : int , max_signals : int = MAX_SIGNALS , workers : int = 2):
++    """
++    causal_signals replays the live engine at every k-th bar: the signal is computed on the trailing
++    8 * zone bars and only the last row is kept, so nothing at bar t depends on a later bar.
++    It returns a DataFrame with bar index i, timestamp, Theta, Mu and Margin. The bars it skips are
++    spread evenly so that no more than max_signals are computed.
++
++    Inputs:
++    bars : pd.DataFrame - horizon bars
++    zone : int - the zone
++    max_signals : int - cap on signals computed
++    workers : int - processes to use
++    """
++
++    first = WINDOW_PER_ZONE * zone - 1
++    last = len(bars) - 1
++    if last < first:
++        raise ValueError("Not enough bars for one window.")
++
++    stride = max(1 , math.ceil((last - first + 1) / max_signals))
++    idx = list(range(first , last + 1 , stride))
++
++    if workers > 1:
++        with Pool(workers , initializer = _init_worker , initargs = (bars , zone)) as pool:
++            res = pool.map(_signal_at , idx , chunksize = 200)
++    else:
++        _init_worker(bars , zone)
++        res = [_signal_at(i) for i in idx]
++
++    out = pd.DataFrame(res , columns = ["Theta" , "Mu" , "Margin"])
++    out.insert(0 , "i" , idx)
++    out.insert(1 , "timestamp" , bars["timestamp"].iloc[idx].to_numpy())
++    return out
++
++
++def add_outcomes(sig : pd.DataFrame , bars : pd.DataFrame , instrument : str = "USD_JPY" ,
++                 pairs : list = None , horizon_bars_n : int = 1 , touch_bars : int = 6):
++    """
++    add_outcomes labels every signal with what happened next, in pips, before the spread. Entry is the
++    close of the signal bar. Columns added:
++      ret0 - the signal bar's own move
++      long_pips / short_pips - the next-bar result: the close horizon_bars_n bars later minus entry
++      for each (target , stop) pair: long_T{t}_S{s} and short_T{t}_S{s} - the result of a trade that exits at
++      the target or the stop, whichever the later bars' high / low reach first within touch_bars bars,
++      or at the last bar's close if neither is reached. A bar that reaches both counts as the stop.
++    It returns sig with those columns.
++
++    Inputs:
++    sig : pd.DataFrame - output of causal_signals
++    bars : pd.DataFrame - the same horizon bars
++    instrument : str - sets the pip size
++    pairs : list - (target , stop) pairs in pips, e.g. [(10 , 5)]
++    horizon_bars_n : int - bars ahead for the next-bar label
++    touch_bars : int - most bars a target / stop trade is held
++    """
++
++    pip = pip_size(instrument)
++    close , high , low = bars["close"].to_numpy() , bars["high"].to_numpy() , bars["low"].to_numpy()
++    idx = sig["i"].to_numpy()
++    out = sig.copy()
++
++    out["ret0"] = (close[idx] - close[np.maximum(idx - 1 , 0)]) / pip
++    ahead = idx + horizon_bars_n
++    valid = ahead < len(close)
++    nxt = np.full(len(idx) , np.nan)
++    nxt[valid] = (close[ahead[valid]] - close[idx[valid]]) / pip
++    out["long_pips"] , out["short_pips"] = nxt , -nxt
++
++    for target , stop in (pairs or []):
++        longs , shorts = np.full(len(idx) , np.nan) , np.full(len(idx) , np.nan)
++        for n , i in enumerate(idx):
++            end = min(i + touch_bars , len(close) - 1)
++            if end <= i or i + touch_bars > len(close) - 1:
++                continue # the trade would run past the data, so it has no label
++            entry = close[i]
++            longs[n] = _touch(entry , high[i + 1 : end + 1] , low[i + 1 : end + 1] , close[end] , target , stop , pip , +1)
++            shorts[n] = _touch(entry , high[i + 1 : end + 1] , low[i + 1 : end + 1] , close[end] , target , stop , pip , -1)
++        out[f"long_T{target}_S{stop}"] , out[f"short_T{target}_S{stop}"] = longs , shorts
++    return out
++
++
++def _touch(entry , highs , lows , last_close , target , stop , pip , side):
++    for h , l in zip(highs , lows):
++        up , dn = (h - entry) / pip , (entry - l) / pip # how far the bar went each way
++        hit_target = (up if side > 0 else dn) >= target
++        hit_stop = (dn if side > 0 else up) >= stop
++        if hit_stop:
++            return -float(stop) # both in one bar counts as the stop
++        if hit_target:
++            return float(target)
++    return side * (last_close - entry) / pip
++
++
++def score(df : pd.DataFrame , actions : np.ndarray , long_col : str = "long_pips" ,
++          short_col : str = "short_pips" , spread : float = SPREAD_PIPS):
++    """
++    score is the result of a rule over a set of rows, after the spread paid on each trade.
++    It returns a dictionary: trades, hit rate (share of trades with a positive gross result),
++    mean gross pips, mean net pips and total net pips.
++
++    Inputs:
++    df : pd.DataFrame - rows with the outcome columns
++    actions : np.ndarray - 0 BUY , 1 SELL , 2 HOLD per row
++    long_col : str - outcome of a long trade
++    short_col : str - outcome of a short trade
++    spread : float - round-trip cost in pips
++    """
++
++    actions = np.asarray(actions)
++    gross = np.where(actions == 0 , df[long_col].to_numpy() , np.where(actions == 1 , df[short_col].to_numpy() , np.nan))
++    gross = gross[~np.isnan(gross)]
++    if len(gross) == 0:
++        return {"trades" : 0 , "hit" : np.nan , "gross" : np.nan , "net" : np.nan , "net_total" : 0.0}
++    return {"trades" : int(len(gross)) , "hit" : float((gross > 0).mean()) , "gross" : float(gross.mean()) ,
++            "net" : float(gross.mean() - spread) , "net_total" : float((gross - spread).sum())}
++
++
++def baselines(df : pd.DataFrame , long_col : str = "long_pips" , short_col : str = "short_pips" ,
++              spread : float = SPREAD_PIPS):
++    """
++    baselines scores the rules a region rule has to beat: always buy, always sell and fade the last bar.
++    It returns a dictionary of name -> score.
++
++    Inputs:
++    df : pd.DataFrame - rows with the outcome columns and ret0
++    long_col , short_col , spread : see score
++    """
++
++    n = len(df)
++    fade = np.where(df["ret0"].to_numpy() > 0 , 1 , np.where(df["ret0"].to_numpy() < 0 , 0 , 2))
++    return {"always_buy" : score(df , np.zeros(n , dtype = int) , long_col , short_col , spread) ,
++            "always_sell" : score(df , np.ones(n , dtype = int) , long_col , short_col , spread) ,
++            "fade_last_bar" : score(df , fade , long_col , short_col , spread)}
++
++
++def month_index(ts : pd.Series):
++    """
++    month_index numbers calendar months as year * 12 + month so months can be compared and counted.
++    It returns an integer Series.
++
++    Inputs:
++    ts : pd.Series - UTC timestamps
++    """
++
++    return ts.dt.year * 12 + ts.dt.month
++
++
++def walk_forward(df : pd.DataFrame , shape : tuple = (2 , 3) , train_months : int = 7 , gap_months : int = 1 ,
++                 min_train_months : int = 3 , long_col : str = "long_pips" , short_col : str = "short_pips" ,
++                 spread : float = SPREAD_PIPS , **learn_kwargs):
++    """
++    walk_forward learns regions on past months and scores them on a later month, month after month. For a
++    test month T the training months are T - gap_months - train_months to T - gap_months - 1, so no month
++    from the last gap_months months before T is used in training. gap_months = 0 scores the blind month, the
++    month right after the training window. gap_months = 1 (default) skips a month, which is how a model
++    trained through month t - 2 does in month t, where it is deployed. A test month with fewer than
++    min_train_months training months is skipped, which lets the window grow at the start of the data.
++    It returns (per-month DataFrame, pooled results dictionary). The pooled results hold the region rule and
++    each baseline over all test months.
++
++    Inputs:
++    df : pd.DataFrame - signals with outcomes and timestamp
++    shape : tuple - (Theta bins , Mu bins)
++    train_months : int - longest training window
++    gap_months : int - months skipped between training and the test month
++    min_train_months : int - fewest training months allowed
++    long_col , short_col , spread : see score
++    learn_kwargs : passed to learn_regions
++    """
++
++    df = usable(df).dropna(subset = [long_col , short_col]).reset_index(drop = True)
++    months = month_index(df["timestamp"])
++    rows , tests = [] , []
++
++    for T in sorted(months.unique()):
++        lo , hi = T - gap_months - train_months , T - gap_months - 1
++        train = df[(months >= lo) & (months <= hi)]
++        have = months[(months >= lo) & (months <= hi)].nunique()
++        test = df[months == T]
++        if have < min_train_months or len(test) == 0:
++            continue
++
++        fit = train[["Theta" , "Mu"]].assign(long_pips = train[long_col] , short_pips = train[short_col])
++        model = learn_regions(fit , shape = shape , spread = spread , **learn_kwargs)
++        actions = apply_regions(test , model)
++        res = score(test , actions , long_col , short_col , spread)
++        rows.append({"month" : f"{(T - 1) // 12}-{(T - 1) % 12 + 1:02d}" , "train_months" : int(have) ,
++                     "n_test" : len(test) , "traded" : res["trades"] , "hit" : res["hit"] ,
++                     "gross" : res["gross"] , "net" : res["net"]})
++        tests.append((test , actions))
++
++    if not tests:
++        return pd.DataFrame(rows) , {}
++
++    pooled_df = pd.concat([t for t , _ in tests] , ignore_index = True)
++    pooled_actions = np.concatenate([a for _ , a in tests])
++    pooled = {"regions" : score(pooled_df , pooled_actions , long_col , short_col , spread)}
++    pooled.update(baselines(pooled_df , long_col , short_col , spread))
++    return pd.DataFrame(rows) , pooled
++
++
++def log_trial(settings : dict , results : dict , path : str = TRIALS_PATH):
++    """
++    log_trial appends one row to the trial log: when, the settings and the pooled results of the rules
++    that were scored. The log is what tells us how many tries sit behind any number.
++    It returns the path.
++
++    Inputs:
++    settings : dict - everything that was set for the run
++    results : dict - name -> score dictionary
++    path : str - the CSV to append to
++    """
++
++    row = {"when_utc" : datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")}
++    row.update({f"set_{k}" : v for k , v in settings.items()})
++    for name , res in results.items():
++        for k , v in res.items():
++            row[f"{name}_{k}"] = round(v , 4) if isinstance(v , float) else v
++
++    new = pd.DataFrame([row])
++    if os.path.exists(path):
++        old = pd.read_csv(path)
++        new = pd.concat([old , new] , ignore_index = True)
++    tmp = f"{path}.{os.getpid()}.tmp"
++    new.to_csv(tmp , index = False)
++    os.replace(tmp , path)
++    return path
++
++
++def run(horizon_min : int = 30 , zone : int = 5 , shape : tuple = (2 , 3) , granularity : str = "S5" ,
++        pairs : list = None , touch_bars : int = 6 , train_months : int = 7 , gap_months : int = 1 ,
++        instrument : str = "USD_JPY" , root : str = None , workers : int = 2 , log : bool = True ,
++        spread : float = SPREAD_PIPS):
++    """
++    run does the whole experiment for one horizon: bars, causal signals, outcomes, then a walk-forward for the
++    next-bar label and for each target / stop pair, with baselines. Aug-Oct 2026 is never loaded.
++    It returns a dictionary of name -> (per-month DataFrame, pooled results).
++
++    Inputs:
++    horizon_min : int - whole-minute horizon, M{n}Q0
++    zone : int - the zone
++    shape : tuple - (Theta bins , Mu bins)
++    granularity : str - which pulled history to read
++    pairs : list - (target , stop) pairs in pips
++    touch_bars : int - most bars a target / stop trade is held
++    train_months , gap_months : int - walk-forward schedule
++    instrument : str - the instrument
++    root : str - history folder, defaults to data/history
++    workers : int - processes for the signal replay
++    log : bool - append to trials.csv
++    spread : float - round-trip cost in pips, 0 shows the result before costs
++    """
++
++    t0 = time.time()
++    candles = load_history(instrument , granularity , root)
++    bars = horizon_bars(candles , 60 * horizon_min)
++    sig = causal_signals(bars , zone , workers = workers)
++    sig = add_outcomes(sig , bars , instrument , pairs , touch_bars = touch_bars)
++
++    out = {}
++    jobs = [("next_bar" , "long_pips" , "short_pips")]
++    jobs += [(f"T{t}_S{s}" , f"long_T{t}_S{s}" , f"short_T{t}_S{s}") for t , s in (pairs or [])]
++    for name , lc , sc in jobs:
++        monthly , pooled = walk_forward(sig , shape , train_months , gap_months , long_col = lc , short_col = sc , spread = spread)
++        out[name] = (monthly , pooled)
++        if log and pooled:
++            log_trial({"horizon_min" : horizon_min , "zone" : zone , "shape" : f"{shape[0]}x{shape[1]}" ,
++                       "label" : name , "granularity" : granularity , "train_months" : train_months ,
++                       "gap_months" : gap_months , "touch_bars" : touch_bars , "spread" : spread , "signals" : len(sig) ,
++                       "seconds" : round(time.time() - t0)} , pooled)
++    return out
++
++
++def retrain(horizon_min : int = 30 , zone : int = 5 , shape : tuple = (2 , 3) , granularity : str = "S5" ,
++            label_pair : tuple = None , touch_bars : int = 6 , train_months : int = 7 ,
++            min_blind_trades : int = 30 , out_path : str = None , instrument : str = "USD_JPY" ,
++            root : str = None , workers : int = 2 , allow_holdout : bool = False):
++    """
++    retrain is the monthly command. At the start of month t the newest month in the data is t - 1. It fits regions on
++    the train_months months before that (t - 8 to t - 2 by default), scores them on the newest
++    month in the data (the blind month, never used in fitting), and saves the model to out_path only if that
++    blind month traded at least min_blind_trades times with a positive net result after the spread. If not,
++    the saved model is left alone. The saved file records the window it was trained on.
++    It returns a dictionary: saved, blind month result, baselines.
++
++    Inputs:
++    horizon_min , zone , shape , granularity , touch_bars , instrument , root , workers : see run
++    label_pair : tuple - (target , stop) in pips to train on, None trains on the next-bar result
++    train_months : int - months of training, ending the month before the blind month
++    min_blind_trades : int - fewest blind-month trades that count as evidence
++    out_path : str - where to save, defaults to models/model_params.json
++    allow_holdout : bool - True includes Aug-Oct 2026, for the one final look only
++    """
++
++    from research.regions import save_model
++    from utils.regions import MODEL_PATH
++
++    candles = load_history(instrument , granularity , root , allow_holdout)
++    bars = horizon_bars(candles , 60 * horizon_min)
++    pairs = [label_pair] if label_pair else None
++    sig = add_outcomes(causal_signals(bars , zone , workers = workers) , bars , instrument , pairs , touch_bars = touch_bars)
++    lc , sc = ("long_pips" , "short_pips") if not label_pair else (f"long_T{label_pair[0]}_S{label_pair[1]}" , f"short_T{label_pair[0]}_S{label_pair[1]}")
++
++    df = usable(sig).dropna(subset = [lc , sc]).reset_index(drop = True)
++    months = month_index(df["timestamp"])
++    blind = int(months.max())
++    lo , hi = blind - train_months , blind - 1
++    train , test = df[(months >= lo) & (months <= hi)] , df[months == blind]
++    fit = train[["Theta" , "Mu"]].assign(long_pips = train[lc] , short_pips = train[sc])
++    model = learn_regions(fit , shape = shape)
++    res = score(test , apply_regions(test , model) , lc , sc)
++
++    ok = res["trades"] >= min_blind_trades and res["net"] > 0
++    if ok:
++        save_model(model , out_path or MODEL_PATH ,
++                   {"instrument" : instrument , "horizon_min" : horizon_min , "zone" : zone , "granularity" : granularity ,
++                    "label" : lc , "train_from_month" : int(lo) , "train_to_month" : int(hi) ,
++                    "blind_month" : blind , "blind_result" : res})
++    return {"saved" : ok , "blind" : res , "baselines" : baselines(test , lc , sc)}
++
++
++def show(out : dict):
++    """
++    show prints the pooled results of run() as one table.
++    It returns nothing.
++
++    Inputs:
++    out : dict - the output of run
++    """
++
++    for name , (monthly , pooled) in out.items():
++        print(f"\n== {name} ==")
++        if not pooled:
++            print("no test months (not enough training months yet)")
++            continue
++        print(pd.DataFrame(pooled).T.round(3).to_string())
++        print("per month:"); print(monthly.round(3).to_string(index = False))
++
++
++## Adds modularity
++if __name__ == "__main__":
++    ap = argparse.ArgumentParser(description = "Walk-forward test of Theta x Mu regions. Never loads Aug-Oct 2026.")
++    ap.add_argument("--horizon-min" , type = int , default = 30)
++    ap.add_argument("--zone" , type = int , default = 5)
++    ap.add_argument("--shape" , default = "2,3" , help = "Theta bins,Mu bins")
++    ap.add_argument("--granularity" , default = "S5")
++    ap.add_argument("--pairs" , default = "" , help = "target/stop pairs in pips, e.g. 10/5,8/4")
++    ap.add_argument("--touch-bars" , type = int , default = 6)
++    ap.add_argument("--train-months" , type = int , default = 7)
++    ap.add_argument("--gap-months" , type = int , default = 1)
++    ap.add_argument("--spread" , type = float , default = SPREAD_PIPS , help = "round-trip cost in pips, 0 shows the result before costs")
++    ap.add_argument("--root" , default = None)
++    args = ap.parse_args()
++    prs = [tuple(float(x) if "." in x else int(x) for x in p.split("/")) for p in args.pairs.split(",") if p]
++    show(run(args.horizon_min , args.zone , tuple(int(x) for x in args.shape.split(",")) , args.granularity ,
++             prs , args.touch_bars , args.train_months , args.gap_months , root = args.root , spread = args.spread))
+diff --git a/research/trials.csv b/research/trials.csv
+new file mode 100644
+index 0000000..88803e4
+--- /dev/null
++++ b/research/trials.csv
+@@ -0,0 +1,7 @@
++when_utc,set_horizon_min,set_zone,set_shape,set_label,set_granularity,set_train_months,set_gap_months,set_touch_bars,set_signals,set_seconds,regions_trades,regions_hit,regions_gross,regions_net,regions_net_total,always_buy_trades,always_buy_hit,always_buy_gross,always_buy_net,always_buy_net_total,always_sell_trades,always_sell_hit,always_sell_gross,always_sell_net,always_sell_net_total,fade_last_bar_trades,fade_last_bar_hit,fade_last_bar_gross,fade_last_bar_net,fade_last_bar_net_total,set_spread
++2026-11-12 01:13:35,30,5,2x3,next_bar,S5,7,1,6,7209,91,0,,,,0.0,3162,0.5348,0.014,-1.586,-5014.9,3162,0.4494,-0.014,-1.614,-5103.5,3112,0.5174,0.1973,-1.4027,-4365.2,
++2026-11-12 01:13:35,30,5,2x3,T10_S5,S5,7,1,6,7209,91,0,,,,0.0,3157,0.3906,0.2229,-1.3771,-4347.5,3157,0.3253,-0.6686,-2.2686,-7162.0,3107,0.3769,0.0395,-1.5605,-4848.5,
++2026-11-12 01:13:35,30,5,2x3,T8_S4,S5,7,1,6,7209,91,0,,,,0.0,3157,0.3611,0.0773,-1.5227,-4807.1,3157,0.3133,-0.4845,-2.0845,-6580.8,3107,0.3579,0.0429,-1.5571,-4837.8,
++2026-11-12 01:13:35,30,5,2x3,T10_S10,S5,7,1,6,7209,91,0,,,,0.0,3157,0.535,0.5248,-1.0752,-3394.3,3157,0.4419,-0.8606,-2.4606,-7768.1,3107,0.5034,0.0392,-1.5608,-4849.3,
++2026-11-12 01:15:15,30,5,2x3,next_bar,S5,7,1,6,7209,90,3162,0.5032,0.2434,0.2434,769.7,3162,0.5348,0.014,0.014,44.3,3162,0.4494,-0.014,-0.014,-44.3,3112,0.5174,0.1973,0.1973,614.0,0.0
++2026-11-12 01:15:15,30,5,2x3,T10_S5,S5,7,1,6,7209,90,0,,,,0.0,3157,0.3906,0.2229,0.2229,703.7,3157,0.3253,-0.6686,-0.6686,-2110.8,3107,0.3769,0.0395,0.0395,122.7,0.0
+diff --git a/tests/test_regions.py b/tests/test_regions.py
+new file mode 100644
+index 0000000..a502e71
+--- /dev/null
++++ b/tests/test_regions.py
+@@ -0,0 +1,116 @@
++### test_regions.py checks the Theta x Mu region lookup that decisionrule uses and the research learner
++### that builds it. No network, no key and no real data are used.
++
++import json
++
++import numpy as np
++import pandas as pd
++import pytest
++
++import utils.regions as rt
++import utils.transform_signal as ts
++import research.regions as rg
++
++MODEL = {"theta_cuts" : [5.0] , "mu_cuts" : [-0.5 , 0.5] , "actions" : [0 , 2 , 1 , 2 , 2 , 2]}
++# Theta below 5: Mu low BUY, mid HOLD, high SELL. Theta above 5: all HOLD.
++
++
++def test_region_lookup_places_each_pair():
++    assert rt.region_id(1.0 , -1.0 , MODEL) == 0
++    assert rt.region_id(1.0 , 0.0 , MODEL) == 1
++    assert rt.region_id(1.0 , 2.0 , MODEL) == 2
++    assert rt.region_id(9.0 , -1.0 , MODEL) == 3
++    assert rt.region_action(1.0 , -1.0 , MODEL) == rt.BUY
++    assert rt.region_action(1.0 , 2.0 , MODEL) == rt.SELL
++    assert rt.region_action(9.0 , 2.0 , MODEL) == rt.HOLD
++
++
++def test_values_that_cannot_be_placed_are_hold():
++    for t , m in [(np.nan , 0.0) , (1.0 , np.nan) , (rt.SENTINEL , 0.0) , (1.0 , rt.SENTINEL) , (None , 0.0) , ("x" , 0.0) , (np.inf , 0.0)]:
++        assert rt.region_action(t , m , MODEL) == rt.HOLD
++
++
++def test_missing_or_broken_model_file_is_hold(tmp_path , monkeypatch):
++    monkeypatch.setattr(rt , "MODEL_PATH" , str(tmp_path / "none.json"))
++    assert rt.load_model() is None and rt.region_action(1.0 , -1.0) == rt.HOLD
++    bad = tmp_path / "bad.json"
++    bad.write_text(json.dumps({"theta_cuts" : [3 , 1] , "mu_cuts" : [] , "actions" : [0 , 0 , 0]}))
++    assert rt.load_model(str(bad)) is None
++    bad.write_text("not json")
++    assert rt.load_model(str(bad)) is None
++
++
++def test_model_file_is_read_again_when_it_changes(tmp_path):
++    path = tmp_path / "m.json"
++    path.write_text(json.dumps(MODEL))
++    assert rt.load_model(str(path))["actions"][0] == 0
++    path.write_text(json.dumps({**MODEL , "actions" : [1 , 2 , 1 , 2 , 2 , 2]}))
++    import os
++    os.utime(path , (path.stat().st_atime + 5 , path.stat().st_mtime + 5))
++    assert rt.load_model(str(path))["actions"][0] == 1
++
++
++def row(theta = 1.0 , mu = -1.0):
++    r = {c : 1.0 for c in ts.SIGNAL_COLS}
++    r.update({"Theta" : theta , "Mu" : mu})
++    return pd.Series(r)
++
++
++def test_decisionrule_default_never_trades(monkeypatch):
++    assert ts.DECISION_MODE == "hold"
++    monkeypatch.setattr(rt , "load_model" , lambda path = None : MODEL)
++    assert ts.decisionrule(row()) == 2
++
++
++def test_decisionrule_regions_mode_reads_the_map(monkeypatch):
++    monkeypatch.setattr(ts , "DECISION_MODE" , "regions")
++    monkeypatch.setattr(rt , "load_model" , lambda path = None : MODEL)
++    assert ts.decisionrule(row(1.0 , -1.0)) == 0
++    assert ts.decisionrule(row(1.0 , 2.0)) == 1
++    assert ts.decisionrule(row(9.0 , 0.0)) == 2
++    warming = row(); warming["B"] = np.nan
++    assert ts.decisionrule(warming) == 2 # a row still warming up is HOLD in any mode
++
++
++def planted(n = 4000 , edge = 4.0 , noise = 6.0 , seed = 0):
++    """Mu below -1 gives long trades a positive result and Mu above 1 gives short trades one."""
++    rng = np.random.default_rng(seed)
++    theta , mu = rng.uniform(0 , 10 , n) , rng.normal(0 , 1.5 , n)
++    drift = np.where(mu < -1 , edge , np.where(mu > 1 , -edge , 0.0))
++    long = drift + rng.normal(0 , noise , n)
++    return pd.DataFrame({"Theta" : theta , "Mu" : mu , "long_pips" : long , "short_pips" : -long})
++
++
++def test_learner_finds_a_planted_edge():
++    model = rg.learn_regions(planted() , shape = (1 , 4) , spread = 1.0)
++    acts = apply = rg.apply_regions(pd.DataFrame({"Theta" : [5.0 , 5.0] , "Mu" : [-3.0 , 3.0]}) , model)
++    assert list(acts) == [rt.BUY , rt.SELL]
++
++
++def test_learner_finds_nothing_in_noise():
++    rng = np.random.default_rng(1)
++    n = 4000
++    df = pd.DataFrame({"Theta" : rng.uniform(0 , 10 , n) , "Mu" : rng.normal(0 , 1 , n) ,
++                       "long_pips" : rng.normal(0 , 6 , n)})
++    df["short_pips"] = -df["long_pips"]
++    model = rg.learn_regions(df , shape = (2 , 3) , spread = 1.6)
++    assert set(model["actions"]) == {rt.HOLD}
++
++
++def test_thin_regions_do_not_trade():
++    df = planted(n = 90)
++    model = rg.learn_regions(df , shape = (1 , 3) , spread = 0.0 , min_n = 150)
++    assert set(model["actions"]) == {rt.HOLD}
++
++
++def test_spread_can_turn_an_edge_into_hold():
++    cheap = rg.learn_regions(planted() , shape = (1 , 4) , spread = 0.5)
++    costly = rg.learn_regions(planted() , shape = (1 , 4) , spread = 50.0)
++    assert rt.BUY in cheap["actions"] and set(costly["actions"]) == {rt.HOLD}
++
++
++def test_saved_model_loads(tmp_path):
++    model = rg.learn_regions(planted() , shape = (2 , 2) , spread = 1.0)
++    path = rg.save_model(model , str(tmp_path / "models" / "m.json") , {"horizon_min" : 30})
++    loaded = rt.load_model(path)
++    assert loaded["actions"] == model["actions"] and loaded["trained_on"]["horizon_min"] == 30
+diff --git a/tests/test_signal_lab.py b/tests/test_signal_lab.py
+new file mode 100644
+index 0000000..72ecc26
+--- /dev/null
++++ b/tests/test_signal_lab.py
+@@ -0,0 +1,125 @@
++### test_signal_lab.py checks the research harness: the sealed months stay sealed, outcome labels are what
++### they say, and the walk-forward never trains on a month it is about to be scored on.
++
++import os
++
++import numpy as np
++import pandas as pd
++import pytest
++
++import research.signal_lab as lab
++from research.pull_history import write_atomic, COLUMNS
++
++
++def make_history(root , months = ("2026-06" , "2026-07" , "2026-08") , per = 50):
++    folder = os.path.join(root , "USD_JPY_S5")
++    for m in months:
++        ts = pd.date_range(f"{m}-03 10:00" , periods = per , freq = "5s" , tz = "UTC")
++        df = pd.DataFrame({c : [150.0] * per for c in COLUMNS})
++        df["timestamp"] = ts.strftime("%Y-%m-%d %H:%M:%S+00:00")
++        df["volume"] = 10
++        write_atomic(df , os.path.join(folder , f"USD_JPY_S5_{m}.csv.gz"))
++
++
++def test_sealed_months_are_not_loaded_unless_asked(tmp_path):
++    make_history(str(tmp_path))
++    sealed = lab.load_history("USD_JPY" , "S5" , str(tmp_path))
++    assert sealed.index.max() < lab.HOLDOUT_START
++    assert lab.load_history("USD_JPY" , "S5" , str(tmp_path) , allow_holdout = True).index.max() >= lab.HOLDOUT_START
++
++
++def test_missing_history_says_how_to_fix_it(tmp_path):
++    with pytest.raises(FileNotFoundError , match = "pull_history"):
++        lab.load_history("USD_JPY" , "S5" , str(tmp_path))
++
++
++def bars_from(highs , lows , closes):
++    n = len(closes)
++    return pd.DataFrame({"timestamp" : pd.date_range("2026-01-05" , periods = n , freq = "30min" , tz = "UTC") ,
++                         "open" : closes , "high" : highs , "low" : lows , "close" : closes , "volume" : [1] * n})
++
++
++def label(highs , lows , closes , target = 10 , stop = 5 , touch = 3):
++    bars = bars_from(highs , lows , closes)
++    sig = pd.DataFrame({"i" : [0] , "timestamp" : [bars.timestamp[0]] , "Theta" : [1.0] , "Mu" : [0.0] , "Margin" : [0.0]})
++    out = lab.add_outcomes(sig , bars , "USD_JPY" , [(target , stop)] , touch_bars = touch)
++    return out.iloc[0]
++
++
++def test_target_before_stop_pays_the_target():
++    # entry 150.00. bar 1 reaches +12 pips and only -2: long hits the 10 pip target, short hits its 5 pip stop.
++    r = label([150.0 , 150.12 , 150.0 , 150.0] , [150.0 , 149.98 , 150.0 , 150.0] , [150.0 , 150.0 , 150.0 , 150.0])
++    assert r["long_T10_S5"] == 10 and r["short_T10_S5"] == -5
++
++
++def test_stop_first_and_both_in_one_bar_count_as_the_stop():
++    r = label([150.0 , 150.01 , 150.0 , 150.0] , [150.0 , 149.94 , 150.0 , 150.0] , [150.0] * 4)
++    assert r["long_T10_S5"] == -5
++    both = label([150.0 , 150.12 , 150.0 , 150.0] , [150.0 , 149.94 , 150.0 , 150.0] , [150.0] * 4)
++    assert both["long_T10_S5"] == -5 and both["short_T10_S5"] == -5
++
++
++def test_no_touch_exits_at_the_last_close_and_runs_past_data_have_no_label():
++    r = label([150.0 , 150.02 , 150.03 , 150.03] , [150.0 , 149.99 , 150.0 , 150.0] , [150.0 , 150.01 , 150.02 , 150.03])
++    assert r["long_T10_S5"] == pytest.approx(3.0) and r["short_T10_S5"] == pytest.approx(-3.0)
++    short_data = label([150.0 , 150.0] , [150.0 , 150.0] , [150.0 , 150.0])
++    assert np.isnan(short_data["long_T10_S5"])
++
++
++def test_next_bar_label_is_the_following_close():
++    bars = bars_from([150.1] * 3 , [149.9] * 3 , [150.00 , 150.07 , 149.99])
++    sig = pd.DataFrame({"i" : [0 , 1] , "timestamp" : bars.timestamp[:2] , "Theta" : [1.0] * 2 , "Mu" : [0.0] * 2 , "Margin" : [0.0] * 2})
++    out = lab.add_outcomes(sig , bars)
++    assert out.long_pips.tolist() == pytest.approx([7.0 , -8.0]) and out.short_pips.tolist() == pytest.approx([-7.0 , 8.0])
++
++
++def test_score_counts_spread_once_per_trade():
++    df = pd.DataFrame({"long_pips" : [5.0 , 1.0 , 2.0] , "short_pips" : [-5.0 , -3.0 , -2.0]})
++    res = lab.score(df , np.array([0 , 1 , 2]) , spread = 1.6) # buy wins 5, sell loses 3, third row is HOLD
++    assert res["trades"] == 2 and res["hit"] == pytest.approx(0.5)
++    assert res["gross"] == pytest.approx(1.0) and res["net"] == pytest.approx(-0.6) and res["net_total"] == pytest.approx(-1.2)
++
++
++def monthly_frame(months = 10 , per = 60 , seed = 0):
++    rng = np.random.default_rng(seed)
++    rows = []
++    for k in range(months):
++        ts = pd.date_range(f"2026-{k + 1:02d}-05" , periods = per , freq = "1h" , tz = "UTC")
++        mu = rng.normal(0 , 1.5 , per)
++        long = np.where(mu < -1 , 4.0 , 0.0) + rng.normal(0 , 5 , per)
++        rows.append(pd.DataFrame({"timestamp" : ts , "Theta" : rng.uniform(0 , 10 , per) , "Mu" : mu ,
++                                  "long_pips" : long , "short_pips" : -long , "ret0" : rng.normal(0 , 1 , per)}))
++    return pd.concat(rows , ignore_index = True)
++
++
++def test_walk_forward_never_trains_on_the_gap_or_the_test_month(monkeypatch):
++    seen = []
++    real = lab.learn_regions
++    def spy(train , **kw):
++        seen.append(sorted(train.index))
++        return real(train , **kw)
++    monkeypatch.setattr(lab , "learn_regions" , spy)
++
++    df = monthly_frame()
++    monthly , pooled = lab.walk_forward(df , shape = (1 , 3) , train_months = 4 , gap_months = 1 , min_train_months = 3 , min_n = 10)
++    assert len(monthly) > 0 and "regions" in pooled and "always_buy" in pooled and "fade_last_bar" in pooled
++
++    month = lab.month_index(df["timestamp"])
++    # the latest training row used in each fit is at least gap_months + 1 months before the month being tested
++    for (_ , r) , used in zip(monthly.iterrows() , seen):
++        y , m = map(int , r["month"].split("-"))
++        T = y * 12 + m
++        assert month.loc[used].max() <= T - 2
++
++
++def test_walk_forward_with_too_little_history_returns_nothing():
++    monthly , pooled = lab.walk_forward(monthly_frame(months = 3) , train_months = 4 , gap_months = 1 , min_train_months = 3)
++    assert len(monthly) == 0 and pooled == {}
++
++
++def test_trial_log_appends(tmp_path):
++    path = str(tmp_path / "trials.csv")
++    lab.log_trial({"horizon_min" : 30 , "zone" : 5} , {"regions" : {"trades" : 10 , "net" : -1.2345678}} , path)
++    lab.log_trial({"horizon_min" : 45 , "zone" : 5} , {"regions" : {"trades" : 12 , "net" : 0.5}} , path)
++    log = pd.read_csv(path)
++    assert len(log) == 2 and log["set_horizon_min"].tolist() == [30 , 45] and log["regions_net"].iloc[0] == pytest.approx(-1.2346)
+diff --git a/utils/regions.py b/utils/regions.py
+new file mode 100644
+index 0000000..eff57db
+--- /dev/null
++++ b/utils/regions.py
+@@ -0,0 +1,115 @@
++### regions.py is a modular and agnostic framework that turns Theta and Mu into a trading action.
++### The Theta x Mu plane is cut into a small grid of regions. Each region maps to 0 BUY , 1 SELL or 2 HOLD.
++### The map is learned offline by research/regions.py and saved in models/model_params.json, so
++### retraining never means editing code. Anything unknown, missing or not a number is HOLD.
++
++## External Dependencies
++import json , os # Libraries for the saved model file
++import numpy as np # Library for numerical work
++
++BUY , SELL , HOLD = 0 , 1 , 2 # same codes as decisionrule
++SENTINEL = 0.00000000314 # transform_signal fills unknown values with this
++MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) , "models" , "model_params.json")
++
++_cache = {} # path -> (mtime, model) so the file is read again only when it changes
++
++
++def load_model(path : str = None):
++    """
++    load_model reads the saved region model. The file is read again only when it has changed.
++    It returns the model dictionary, or None if there is no file or it can't be read, so
++    callers fall back to HOLD.
++
++    Inputs:
++    path : str - path to the JSON model, defaults to models/model_params.json
++    """
++
++    path = path or MODEL_PATH
++    try:
++        mtime = os.path.getmtime(path)
++    except OSError:
++        return None
++
++    hit = _cache.get(path)
++    if hit and hit[0] == mtime:
++        return hit[1]
++
++    try:
++        with open(path , "r" , encoding = "utf-8") as f:
++            model = json.load(f)
++        check_model(model)
++    except (OSError , ValueError , KeyError , TypeError):
++        return None
++
++    _cache[path] = (mtime , model)
++    return model
++
++
++def check_model(model : dict):
++    """
++    check_model raises ValueError if a model is not usable: cut points must be sorted lists and
++    every region must have an action in {0 , 1 , 2}.
++    It returns nothing.
++
++    Inputs:
++    model : dict - the loaded model
++    """
++
++    for key in ("theta_cuts" , "mu_cuts"):
++        cuts = model[key]
++        if not isinstance(cuts , list) or any(not np.isfinite(c) for c in cuts) or cuts != sorted(cuts):
++            raise ValueError(f"{key} must be a sorted list of finite numbers")
++
++    n_regions = (len(model["theta_cuts"]) + 1) * (len(model["mu_cuts"]) + 1)
++    actions = model["actions"]
++    if len(actions) != n_regions or any(a not in (BUY , SELL , HOLD) for a in actions):
++        raise ValueError(f"actions must hold {n_regions} values from {{0 , 1 , 2}}")
++
++
++def region_id(theta : float , mu : float , model : dict):
++    """
++    region_id finds which region a Theta and Mu pair falls in. Regions are numbered with Theta bins
++    as rows and Mu bins as columns: id = theta_bin * (number of Mu bins) + mu_bin.
++    It returns an integer, or None if either value is missing, not finite or the sentinel.
++
++    Inputs:
++    theta : float - Theta in degrees
++    mu : float - Mu
++    model : dict - the loaded model
++    """
++
++    try:
++        theta , mu = float(theta) , float(mu)
++    except (TypeError , ValueError):
++        return None
++
++    if not (np.isfinite(theta) and np.isfinite(mu)):
++        return None
++    if abs(theta - SENTINEL) < 1e-12 or abs(mu - SENTINEL) < 1e-12:
++        return None
++
++    t_bin = int(np.searchsorted(model["theta_cuts"] , theta , side = "right"))
++    m_bin = int(np.searchsorted(model["mu_cuts"] , mu , side = "right"))
++    return t_bin * (len(model["mu_cuts"]) + 1) + m_bin
++
++
++def region_action(theta : float , mu : float , model : dict = None):
++    """
++    region_action is the decision for one bar: the action of the region that Theta and Mu fall in.
++    It returns 0 BUY , 1 SELL or 2 HOLD. HOLD is the answer whenever there is no model or the values
++    can't be placed, so a missing file or a warming-up row never trades.
++
++    Inputs:
++    theta : float - Theta in degrees
++    mu : float - Mu
++    model : dict - a loaded model, defaults to the saved one
++    """
++
++    model = model if model is not None else load_model()
++    if model is None:
++        return HOLD
++
++    rid = region_id(theta , mu , model)
++    if rid is None:
++        return HOLD
++    return int(model["actions"][rid])
+diff --git a/utils/transform_signal.py b/utils/transform_signal.py
+index ca77e16..d68487d 100644
+--- a/utils/transform_signal.py
++++ b/utils/transform_signal.py
+@@ -7,6 +7,8 @@ import numpy as np
+ import pandas as pd
+ from datetime import datetime
+ 
++from utils.regions import region_action
++
+ 
+ ## PARAMETERS
+ ## TUNE FIRST FOR ABSOLUTE OPTIMIZATION
+@@ -48,6 +50,7 @@ MIN_PERIODS = 10 # rolling z min periods  , not tested yet , was max(10 , Z_WIND
+ RFIGS = 4 # figures used for rounding
+ MU_FLOOR = 10**-RFIGS # smallest nonzero Margin diff, floor for the Mu denominator
+ SIGNAL_COLS = ["X","Y","B","S","Margin","Intensity","Theta","Mu"] # must all exist before deciding
++DECISION_MODE = "hold" # "hold" never trades. "regions" decides from the learned Theta x Mu map.
+ 
+ def decisionrule(sample : pd.Series):
+     """
+@@ -64,16 +67,17 @@ def decisionrule(sample : pd.Series):
+     if sample[SIGNAL_COLS].isna().any():
+         return 2
+ 
+-    if True:
+-        return 2 ## Naive Mode (B/S/H) for demonstration purposes, then parameterize DR.
+-    
+     ## 0 is BUY
+     ## 1 is SELL
+     ## 2 is HOLD
+ 
+-    ## Parameterize UxV ( in this case Theta x Mu ) with polar, or something else.
+-    ## Make a nonlinear decision rule here.
+-        
++    ## "regions" decides from the learned Theta x Mu map in models/model_params.json.
++    ## Any row the map can't place, or a missing model file, is HOLD.
++    if DECISION_MODE == "regions":
++        return region_action(sample["Theta"] , sample["Mu"])
++
++    return 2 ## Naive Mode (B/S/H) for demonstration purposes, then parameterize DR.
++
+ 
+ def convert_timestamp(ts_str: str):
+     """

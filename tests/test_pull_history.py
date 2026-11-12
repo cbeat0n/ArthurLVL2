@@ -69,6 +69,18 @@ def test_requests_stay_under_the_chunk_size():
     assert all(c["price"] == "MBA" and c["granularity"] == "M1" for c in http.calls)
 
 
+def test_s5_requests_are_six_hours_each():
+    http = FakeHttp([])
+    ph.pull_history("USD_JPY" , "S5" , "2026-01-01" , "2026-01-02" , http = http)
+    assert len(http.calls) == 8 # 2 days in 6 hour chunks: 4320 S5 candles each, under 5000
+    assert all(c["granularity"] == "S5" for c in http.calls)
+
+
+def test_granularity_without_a_chunk_size_is_refused():
+    with pytest.raises(ValueError):
+        ph.pull_history("USD_JPY" , "H1" , "2026-01-01" , "2026-01-02" , http = FakeHttp([]))
+
+
 def test_unsupported_instrument_is_refused():
     with pytest.raises(ValueError):
         ph.pull_history("GBP_JPY" , "M1" , "2026-01-01" , "2026-01-02" , http = FakeHttp([]))

@@ -1,0 +1,69 @@
+diff --git a/research/pull_history.py b/research/pull_history.py
+index 1b94c52..2b493e0 100644
+--- a/research/pull_history.py
++++ b/research/pull_history.py
+@@ -14,12 +14,13 @@ sys.path.insert(0 , os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ from utils.http_helpers import OandaSession , json_or_raise
+ from utils.instruments import SUPPORTED
+ 
+-## What to pull. Whole minute horizons (M1Q0, M2Q0, M3Q0, M5Q0 ...) are all built from M1 candles.
++## What to pull. Whole minute horizons (M1Q0, M2Q0, M3Q0, M5Q0 ...) can be built from M1 candles.
++## S5 candles also give the sub minute horizons (S10, S30, M1Q1 ...). Set GRANULARITY to "S5" for those.
+ INSTRUMENT = "USD_JPY"
+-GRANULARITY = "M1"
++GRANULARITY = "S5"
+ START_DATE = "2026-01-01" # first day, inclusive
+ END_DATE = "2026-10-31" # last day, inclusive
+-CHUNK_DAYS = 3 # M1 gives at most 4320 candles in 3 days, under OANDA's 5000 candle limit
++CHUNK_HOURS = {"S5" : 6 , "M1" : 72} # 6 h of S5 or 72 h of M1 is 4320 candles, under OANDA's 5000 candle limit
+ THROTTLE_S = 0.225 # pause between requests, same as the backtest
+ BASE_URL = "https://api-fxpractice.oanda.com"
+ OUT_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) , "data" , "history")
+@@ -81,7 +82,7 @@ def month_ranges(start_date : str , end_date : str):
+ 
+ def fetch_range(http , instrument : str , granularity : str , begin : datetime , end : datetime):
+     """
+-    fetch_range fetches all complete candles in [begin, end) in chunks of CHUNK_DAYS days.
++    fetch_range fetches all complete candles in [begin, end) in chunks sized to stay under OANDA's candle limit.
+     It returns a list of OANDA candle dictionaries.
+ 
+     Inputs:
+@@ -92,10 +93,14 @@ def fetch_range(http , instrument : str , granularity : str , begin : datetime ,
+     end : datetime - last moment, exclusive
+     """
+ 
++    if granularity not in CHUNK_HOURS:
++        raise ValueError(f"No chunk size for {granularity!r}. Add it to CHUNK_HOURS.")
++    step = timedelta(hours = CHUNK_HOURS[granularity])
++
+     candles = []
+     cursor = begin
+     while cursor < end:
+-        stop = min(cursor + timedelta(days = CHUNK_DAYS) , end)
++        stop = min(cursor + step , end)
+         params = {"from" : cursor.strftime("%Y-%m-%dT%H:%M:%SZ") ,
+                   "to" : stop.strftime("%Y-%m-%dT%H:%M:%SZ") ,
+                   "granularity" : granularity , "price" : "MBA" , "alignmentTimezone" : "UTC"}
+diff --git a/tests/test_pull_history.py b/tests/test_pull_history.py
+index 0593a70..1e45bf0 100644
+--- a/tests/test_pull_history.py
++++ b/tests/test_pull_history.py
+@@ -69,6 +69,18 @@ def test_requests_stay_under_the_chunk_size():
+     assert all(c["price"] == "MBA" and c["granularity"] == "M1" for c in http.calls)
+ 
+ 
++def test_s5_requests_are_six_hours_each():
++    http = FakeHttp([])
++    ph.pull_history("USD_JPY" , "S5" , "2026-01-01" , "2026-01-02" , http = http)
++    assert len(http.calls) == 8 # 2 days in 6 hour chunks: 4320 S5 candles each, under 5000
++    assert all(c["granularity"] == "S5" for c in http.calls)
++
++
++def test_granularity_without_a_chunk_size_is_refused():
++    with pytest.raises(ValueError):
++        ph.pull_history("USD_JPY" , "H1" , "2026-01-01" , "2026-01-02" , http = FakeHttp([]))
++
++
+ def test_unsupported_instrument_is_refused():
+     with pytest.raises(ValueError):
+         ph.pull_history("GBP_JPY" , "M1" , "2026-01-01" , "2026-01-02" , http = FakeHttp([]))

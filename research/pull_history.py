@@ -14,12 +14,13 @@ sys.path.insert(0 , os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.http_helpers import OandaSession , json_or_raise
 from utils.instruments import SUPPORTED
 
-## What to pull. Whole minute horizons (M1Q0, M2Q0, M3Q0, M5Q0 ...) are all built from M1 candles.
+## What to pull. Whole minute horizons (M1Q0, M2Q0, M3Q0, M5Q0 ...) can be built from M1 candles.
+## S5 candles also give the sub minute horizons (S10, S30, M1Q1 ...). Set GRANULARITY to "S5" for those.
 INSTRUMENT = "USD_JPY"
-GRANULARITY = "M1"
+GRANULARITY = "S5"
 START_DATE = "2026-01-01" # first day, inclusive
 END_DATE = "2026-10-31" # last day, inclusive
-CHUNK_DAYS = 3 # M1 gives at most 4320 candles in 3 days, under OANDA's 5000 candle limit
+CHUNK_HOURS = {"S5" : 6 , "M1" : 72} # 6 h of S5 or 72 h of M1 is 4320 candles, under OANDA's 5000 candle limit
 THROTTLE_S = 0.225 # pause between requests, same as the backtest
 BASE_URL = "https://api-fxpractice.oanda.com"
 OUT_ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))) , "data" , "history")
@@ -81,7 +82,7 @@ def month_ranges(start_date : str , end_date : str):
 
 def fetch_range(http , instrument : str , granularity : str , begin : datetime , end : datetime):
     """
-    fetch_range fetches all complete candles in [begin, end) in chunks of CHUNK_DAYS days.
+    fetch_range fetches all complete candles in [begin, end) in chunks sized to stay under OANDA's candle limit.
     It returns a list of OANDA candle dictionaries.
 
     Inputs:
@@ -92,10 +93,14 @@ def fetch_range(http , instrument : str , granularity : str , begin : datetime ,
     end : datetime - last moment, exclusive
     """
 
+    if granularity not in CHUNK_HOURS:
+        raise ValueError(f"No chunk size for {granularity!r}. Add it to CHUNK_HOURS.")
+    step = timedelta(hours = CHUNK_HOURS[granularity])
+
     candles = []
     cursor = begin
     while cursor < end:
-        stop = min(cursor + timedelta(days = CHUNK_DAYS) , end)
+        stop = min(cursor + step , end)
         params = {"from" : cursor.strftime("%Y-%m-%dT%H:%M:%SZ") ,
                   "to" : stop.strftime("%Y-%m-%dT%H:%M:%SZ") ,
                   "granularity" : granularity , "price" : "MBA" , "alignmentTimezone" : "UTC"}
