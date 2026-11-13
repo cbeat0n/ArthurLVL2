@@ -76,9 +76,16 @@ def test_s5_requests_are_six_hours_each():
     assert all(c["granularity"] == "S5" for c in http.calls)
 
 
+def test_h1_is_pulled_one_request_per_month():
+    http = FakeHttp([])
+    ph.pull_history("USD_JPY" , "H1" , "2024-01-01" , "2025-12-31" , http = http)
+    assert len(http.calls) == 24 # one file per month and a month of H1 is at most 744 candles, far under 5000
+    assert all(c["granularity"] == "H1" for c in http.calls)
+
+
 def test_granularity_without_a_chunk_size_is_refused():
     with pytest.raises(ValueError):
-        ph.pull_history("USD_JPY" , "H1" , "2026-01-01" , "2026-01-02" , http = FakeHttp([]))
+        ph.pull_history("USD_JPY" , "H3" , "2026-01-01" , "2026-01-02" , http = FakeHttp([]))
 
 
 def test_unsupported_instrument_is_refused():
@@ -94,6 +101,6 @@ def test_command_line_defaults_and_overrides():
 
 
 def test_command_line_refuses_bad_input():
-    for bad in (["--start" , "01/01/2025"] , ["--granularity" , "H1"] , ["--instrument" , "GBP_JPY"]):
+    for bad in (["--start" , "01/01/2025"] , ["--granularity" , "H3"] , ["--instrument" , "GBP_JPY"]):
         with pytest.raises(SystemExit):
             ph.parse_args(bad)
